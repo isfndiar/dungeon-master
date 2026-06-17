@@ -1,0 +1,430 @@
+"use client";
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import {
+  HEROES, HERO_IDS, HeroId, hpForLevel, dmgForLevel, xpToNext,
+} from "@/lib/game/heroes";
+import { DUNGEONS, DUNGEON_IDS, DungeonId } from "@/lib/game/dungeons";
+import { heroSprites, drawSprite } from "@/lib/game/sprites";
+import { TownEngine, TOWN_W, TOWN_H, NpcDef, TownAction } from "@/lib/game/town";
+import {
+  loadSave, resetSave, writeSave, SaveData,
+  heroBonusStats, equippedItems, equipItem, unequip, discardItem,
+} from "@/lib/save";
+import {
+  Item, EquipSlot, EQUIP_SLOTS, SLOT_LABEL, RARITY_COLOR, RARITY_LABEL,
+  itemStatLines, formatStat, itemPower,
+} from "@/lib/game/items";
+
+const SCALE = 2;
+
+type Panel = "none" | "heroes" | "equipment" | "dungeon";
+
+function HeroPreview({ id, size = 64 }: { id: HeroId; size?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const c = ref.current;
+    if (!c) return;
+    const ctx = c.getContext("2d")!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, c.width, c.height);
+    drawSprite(ctx, "h_" + id, heroSprites[id], 0, 0, size);
+  }, [id, size]);
+  return <canvas ref={ref} width={size} height={size} className="card-canvas" />;
+}
+
+export default function Town() {
+  const router = useRouter();
+  const [save, setSave] = useState<SaveData | null>(null);
+  const [panel, setPanel] = useState<Panel>("none");
+  const [dialog, setDialog] = useState<{ name: string; lines: string[]; idx: number } | null>(null);
+  const [nearbyName, setNearbyName] = useState<string | null>(null);
+  const [invFilter, setInvFilter] = useState<EquipSlot | "all">("all");
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const engineRef = useRef<TownEngine | null>(null);
+  const panelRef = useRef<Panel>("none");
+  const dialogOpenRef = useRef(false);
+
+  useEffect(() => { panelRef.current = panel; }, [panel]);
+  useEffect(() => { dialogOpenRef.current = dialog !== null; }, [dialog]);
+
+  const commit = useCallback((mutate: (s: SaveData) => void) => {
+    setSave((prev) => {
+      if (!prev) return prev;
+      const next: SaveData = JSON.parse(JSON.stringify(prev));
+      mutate(next);
+      writeSave(next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    setSave(loadSave());
+  }, []);
+
+  const handleInteract = useCallback((npc: NpcDef) => {
+    const action: TownAction = npc.action;
+    if (action === "dungeon") setPanel("dungeon");
+    else if (action === "equipment") setPanel("equipment");
+    else if (action === "heroes") setPanel("heroes");
+    else setDialog({ name: npc.name, lines: npc.lines, idx: 0 });
+  }, []);
+
+  // mount town engine once save is ready
+  const ready = save !== null;
+  useEffect(() => {
+    if (!ready) return;
+    const canvas = canvasRef.current;
+    if (!canvas || engineRef.current) return;
+
+    const engine = new TownEngine(canvas, loadSave().selectedHero, {
+      onNearby: (n) => setNearbyName(n ? n.name : null),
+      onInteract: (n) => {
+        if (panelRef.current !== "none" || dialogOpenRef.current) return;
+        handleInteract(n);
+      },
+    });
+    engine.setScale(SCALE);
+    engineRef.current = engine;
+    engine.start();
+
+    return () => {
+      engine.destroy();
+      engineRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  useEffect(() => {
+    if (save && engineRef.current) engineRef.current.setHero(save.selectedHero);
+  }, [save?.selectedHero]);
+
+  useEffect(() => {
+    engineRef.current?.setPaused(panel !== "none" || dialog !== null);
+  }, [panel, dialog]);
+
+  if (!save) return null;
+
+  const hero = save.selectedHero;
+  const closePanel = () => { setPanel("none"); setDialog(null); };
+
+  const doReset = () => {
+    if (confirm("Reset all progress? This cannot be undone.")) {
+      setSave(resetSave());
+      closePanel();
+    }
+  };
+
+  return (
+    <main className="town-page">
+      <div className="town-topbar">
+        <div className="town-title">DUNGEON HUNTER</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div className="gold-badge">◆ {save.gold}</div>
+          <div className="hero-chip">
+            <HeroPreview id={hero} size={20} />
+            <span>{HEROES[hero].name} Lv{save.heroes[hero].level}</span>
+          </div>
+          <button className="tiny-btn" onClick={doReset}>RESET</button>
+        </div>
+      </div>
+
+      <div className="town-frame" style={{ width: TOWN_W * SCALE, height: TOWN_H * SCALE }}>
+        <canvas
+          ref={canvasRef}
+          width={TOWN_W}
+          height={TOWN_H}
+          tabIndex={0}
+          style={{ width: TOWN_W * SCALE, height: TOWN_H * SCALE, imageRendering: "pixelated" }}
+          onClick={() => {
+            canvasRef.current?.focus();
+            if (panel === "none" && !dialog) engineRef.current?.interactNearby();
+          }}
+        />
+
+        {dialog && (
+          <div
+            className="dialog-box"
+            onClick={() => {
+              if (dialog.idx + 1 < dialog.lines.length) setDialog({ ...dialog, idx: dialog.idx + 1 });
+              else setDialog(null);
+            }}
+          >
+            <div className="dialog-name">{dialog.name}</div>
+            <div className="dialog-text">{dialog.lines[dialog.idx]}</div>
+            <div className="dialog-cont">
+              {dialog.idx + 1 < dialog.lines.length ? "▶ click to continue" : "▶ click to close"}
+            </div>
+          </div>
+        )}
+
+        {panel === "heroes" && (
+          <Modal title="Choose Your Champion" onClose={closePanel}>
+            <HeroSelect save={save} commit={commit} onPick={closePanel} />
+          </Modal>
+        )}
+        {panel === "equipment" && (
+          <Modal title={`${HEROES[hero].name} — Equipment`} onClose={closePanel}>
+            <EquipmentPanel
+              save={save} hero={hero}
+              invFilter={invFilter} setInvFilter={setInvFilter}
+              commit={commit}
+            />
+          </Modal>
+        )}
+        {panel === "dungeon" && (
+          <Modal title="Choose a Dungeon" onClose={closePanel}>
+            <DungeonSelect save={save} hero={hero} router={router} />
+          </Modal>
+        )}
+      </div>
+
+      <div className="town-hint">
+        WASD / Arrows: walk • Walk up to an NPC and press E (or click) to interact
+        {nearbyName && <span className="near"> — near {nearbyName}</span>}
+      </div>
+    </main>
+  );
+}
+
+// ---------------- Modal shell ----------------
+function Modal({ title, onClose, children }: {
+  title: string; onClose: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <span>{title}</span>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------- Hero Select ----------------
+function HeroSelect({ save, commit, onPick }: {
+  save: SaveData; commit: (m: (s: SaveData) => void) => void; onPick: () => void;
+}) {
+  return (
+    <div className="hero-grid">
+      {HERO_IDS.map((id) => {
+        const def = HEROES[id];
+        const prog = save.heroes[id];
+        const need = xpToNext(prog.level);
+        const pct = Math.min(100, (prog.xp / need) * 100);
+        const sel = save.selectedHero === id;
+        return (
+          <div
+            key={id}
+            className={"card" + (sel ? " selected" : "")}
+            onClick={() => { commit((s) => { s.selectedHero = id; }); onPick(); }}
+          >
+            <HeroPreview id={id} />
+            <div className="card-name">{def.name}</div>
+            <div className="card-lv">Lv {prog.level}</div>
+            <div className="card-desc">{def.desc}</div>
+            <div className="stat-row"><span>HP</span><b>{hpForLevel(def, prog.level)}</b></div>
+            <div className="stat-row"><span>DMG</span><b>{dmgForLevel(def, prog.level)}</b></div>
+            <div className="skill-list">
+              {def.skills.map((s) => (
+                <div className="skill-line" key={s.key} title={s.desc}>
+                  <span className="skill-key">{s.key}</span>
+                  <span className="skill-nm">{s.name}</span>
+                </div>
+              ))}
+            </div>
+            <div className="xpbar"><div style={{ width: pct + "%" }} /></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------- Dungeon Select ----------------
+function DungeonSelect({ save, hero, router }: {
+  save: SaveData; hero: HeroId; router: ReturnType<typeof useRouter>;
+}) {
+  const dungeons = DUNGEON_IDS.map((id) => DUNGEONS[id]).sort((a, b) => a.order - b.order);
+  const [pick, setPick] = useState<DungeonId | null>(null);
+  return (
+    <div>
+      <div className="dungeon-grid">
+        {dungeons.map((d) => {
+          const cleared = save.cleared.includes(d.id);
+          const diff = Math.min(4, Math.round(d.difficulty));
+          return (
+            <div
+              key={d.id}
+              className={"dungeon-card" + (pick === d.id ? " selected" : "")}
+              onClick={() => setPick(d.id)}
+              style={{ borderColor: pick === d.id ? "var(--gold)" : undefined }}
+            >
+              {cleared && <div className="cleared-tag">CLEARED</div>}
+              <div className="dungeon-name" style={{ color: d.accent }}>{d.name}</div>
+              <div className="dungeon-desc">{d.desc}</div>
+              <div className="dungeon-meta">
+                <span>{d.rooms + 2} rooms</span>
+                <span>Boss: {bossLabel(d.boss)}</span>
+              </div>
+              <div className="diff-dots">
+                {[0, 1, 2, 3].map((i) => (
+                  <span key={i} className={i < diff ? "on" : ""} />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button
+        className="raid-btn"
+        disabled={!pick}
+        onClick={() => pick && router.push(`/raid?hero=${hero}&dungeon=${pick}`)}
+      >
+        {pick ? `RAID AS ${HEROES[hero].name.toUpperCase()}: ${DUNGEONS[pick].name}` : "SELECT A DUNGEON"}
+      </button>
+    </div>
+  );
+}
+
+// ---------------- Equipment Panel ----------------
+function EquipmentPanel({
+  save, hero, invFilter, setInvFilter, commit,
+}: {
+  save: SaveData;
+  hero: HeroId;
+  invFilter: EquipSlot | "all";
+  setInvFilter: (f: EquipSlot | "all") => void;
+  commit: (mutate: (s: SaveData) => void) => void;
+}) {
+  const equipped = equippedItems(save, hero);
+  const bonus = heroBonusStats(save, hero);
+  const def = HEROES[hero];
+  const prog = save.heroes[hero];
+
+  const usable = (it: Item) =>
+    it.slot !== "weapon" || it.hero === "any" || it.hero === hero;
+
+  const equippedIds = new Set(
+    EQUIP_SLOTS.map((s) => prog.equipped[s]).filter(Boolean) as string[]
+  );
+
+  let list = save.inventory
+    .filter((it) => !equippedIds.has(it.id))
+    .filter(usable);
+  if (invFilter !== "all") list = list.filter((it) => it.slot === invFilter);
+  list = list.slice().sort((a, b) => itemPower(b) - itemPower(a));
+
+  const totalHp = hpForLevel(def, prog.level) + bonus.hp;
+  const totalDmg = dmgForLevel(def, prog.level) + bonus.dmg;
+
+  return (
+    <div className="equip-panel">
+      <div className="equip-left">
+        <div className="equip-slots">
+          {EQUIP_SLOTS.map((slot, i) => {
+            const it = equipped[i];
+            return (
+              <div key={slot} className="equip-slot">
+                <div className="slot-label">{SLOT_LABEL[slot]}</div>
+                {it ? (
+                  <div className="slot-item" style={{ borderColor: RARITY_COLOR[it.rarity] }}>
+                    <div className="slot-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
+                      {it.name}
+                    </div>
+                    <div className="slot-item-stats">
+                      {itemStatLines(it).map((l) => (
+                        <span key={l.key}>{formatStat(l.key, l.value)}</span>
+                      ))}
+                    </div>
+                    <button className="slot-btn" onClick={() => commit((s) => unequip(s, hero, slot))}>
+                      Unequip
+                    </button>
+                  </div>
+                ) : (
+                  <div className="slot-empty">— empty —</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="equip-totals">
+          <div className="tot"><span>HP</span><b>{totalHp}</b></div>
+          <div className="tot"><span>DMG</span><b>{totalDmg}</b></div>
+          <div className="tot"><span>SPD</span><b>+{bonus.speed}</b></div>
+          <div className="tot"><span>CDR</span><b>{Math.round(bonus.cdr * 100)}%</b></div>
+          <div className="tot"><span>CRIT</span><b>{Math.round(bonus.crit * 100)}%</b></div>
+        </div>
+      </div>
+
+      <div className="equip-right">
+        <div className="inv-filters">
+          {(["all", ...EQUIP_SLOTS] as const).map((f) => (
+            <button
+              key={f}
+              className={"inv-filter" + (invFilter === f ? " on" : "")}
+              onClick={() => setInvFilter(f)}
+            >
+              {f === "all" ? "All" : SLOT_LABEL[f]}
+            </button>
+          ))}
+        </div>
+
+        {list.length === 0 ? (
+          <div className="inv-empty">No items. Raid dungeons to find loot!</div>
+        ) : (
+          <div className="inv-list">
+            {list.map((it) => {
+              const lockedWeapon = it.slot === "weapon" && it.hero !== "any" && it.hero !== hero;
+              return (
+                <div className="inv-item" key={it.id} style={{ borderColor: RARITY_COLOR[it.rarity] }}>
+                  <div className="inv-item-head">
+                    <span className="inv-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
+                      {it.name}
+                    </span>
+                    <span className="inv-item-tag">
+                      {RARITY_LABEL[it.rarity]} · {SLOT_LABEL[it.slot]}
+                    </span>
+                  </div>
+                  <div className="inv-item-stats">
+                    {itemStatLines(it).map((l) => (
+                      <span key={l.key}>{formatStat(l.key, l.value)}</span>
+                    ))}
+                  </div>
+                  <div className="inv-item-actions">
+                    <button
+                      className="inv-btn equip"
+                      disabled={lockedWeapon}
+                      onClick={() => commit((s) => equipItem(s, hero, it))}
+                    >
+                      {lockedWeapon ? "Not for this hero" : "Equip"}
+                    </button>
+                    <button className="inv-btn discard" onClick={() => commit((s) => discardItem(s, it.id))}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function bossLabel(boss: string): string {
+  const map: Record<string, string> = {
+    giant_slime: "Giant Slime",
+    spider_queen: "Spider Queen",
+    lich: "Lich",
+    lava_golem: "Lava Golem",
+  };
+  return map[boss] ?? boss;
+}
