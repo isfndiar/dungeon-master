@@ -13,7 +13,26 @@ interface HeroImages {
   loaded: boolean;
 }
 
+type MageAnim = "idle" | "walk" | "attack";
+
+interface MageImages {
+  idle?: HTMLImageElement;
+  walk?: HTMLImageElement;
+  attack?: HTMLImageElement;
+  fireball?: HTMLImageElement;
+  loaded: boolean;
+}
+
+interface PaladinImages {
+  idle?: HTMLImageElement;
+  walk?: HTMLImageElement;
+  attack?: HTMLImageElement;
+  loaded: boolean;
+}
+
 const heroImages: Record<string, HeroImages> = {};
+const mageImages: MageImages = { loaded: false };
+const paladinImages: PaladinImages = { loaded: false };
 let preloadStarted = false;
 
 const HERO_IDS = ["knight", "mage", "priest", "tank", "archer"] as const;
@@ -41,6 +60,35 @@ export function preloadHeroSprites() {
     rec.down = down; rec.up = up; rec.side = side;
     heroImages[id] = rec;
   }
+
+  const mageSources: Record<MageAnim | "fireball", string> = {
+    idle: "/custom/idle_6f/elf_mage_idle_6f_4dir_sheet.png",
+    walk: "/custom/walk_6f/elf_mage_walk_6f_4dir_sheet.png",
+    attack: "/custom/attack_6f/elf_mage_attack_6f_4dir_sheet.png",
+    fireball: "/custom/fireball_6f/fireball_right_6f_sheet.png",
+  };
+  let mageCount = 0;
+  for (const key of Object.keys(mageSources) as (MageAnim | "fireball")[]) {
+    const img = loadImg(mageSources[key]);
+    const done = () => { if (++mageCount >= 4) mageImages.loaded = true; };
+    img.onload = done;
+    img.onerror = done;
+    mageImages[key] = img;
+  }
+
+  const paladinSources: Record<"idle" | "walk" | "attack", string> = {
+    idle: "/sprites/paladin/idle_6f_4dir/paladin_idle_6f_4dir_sheet.png",
+    walk: "/sprites/paladin/walk_6f_4dir/paladin_walk_6f_4dir_sheet.png",
+    attack: "/sprites/paladin/attack_6f_4dir/paladin_attack_6f_4dir_sheet.png",
+  };
+  let paladinCount = 0;
+  for (const key of Object.keys(paladinSources) as ("idle" | "walk" | "attack")[]) {
+    const img = loadImg(paladinSources[key]);
+    const done = () => { if (++paladinCount >= 3) paladinImages.loaded = true; };
+    img.onload = done;
+    img.onerror = done;
+    paladinImages[key] = img;
+  }
 }
 
 export function heroSpritesReady(id: string): boolean {
@@ -67,7 +115,15 @@ export function drawHeroDir(
   size: number,
   walkPhase: number,
   moving: boolean,
+  attackProgress = 0,
 ): boolean {
+  if (id === "mage" && drawCustomMage(
+    ctx, facing, x, y, size, walkPhase, moving, attackProgress,
+  )) return true;
+  if (id === "priest" && drawPaladin(
+    ctx, facing, x, y, size, walkPhase, moving, attackProgress,
+  )) return true;
+
   const rec = heroImages[id];
   if (!rec || !rec.loaded) return false;
 
@@ -82,16 +138,120 @@ export function drawHeroDir(
 
   // walk bob: gentle 2-frame vertical hop while moving
   const bob = moving ? (Math.floor(walkPhase * 8) % 2 === 0 ? 0 : -1) : 0;
+  const drawSize = size * 2;
+  const drawX = x - (drawSize - size) / 2;
+  const drawY = y - (drawSize - size) + bob;
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
   if (flip) {
-    ctx.translate(x + size, y + bob);
+    ctx.translate(drawX + drawSize, drawY);
     ctx.scale(-1, 1);
-    ctx.drawImage(img, 0, 0, size, size);
+    ctx.drawImage(img, 0, 0, drawSize, drawSize);
   } else {
-    ctx.drawImage(img, x, y + bob, size, size);
+    ctx.drawImage(img, drawX, drawY, drawSize, drawSize);
   }
+  ctx.restore();
+  return true;
+}
+
+const MAGE_CELL = 128;
+const MAGE_DIR_ROW: Record<Facing, number> = {
+  down: 0,
+  left: 1,
+  right: 2,
+  up: 3,
+};
+
+function drawCustomMage(
+  ctx: CanvasRenderingContext2D,
+  facing: Facing,
+  x: number,
+  y: number,
+  size: number,
+  animTime: number,
+  moving: boolean,
+  attackProgress: number,
+): boolean {
+  if (!mageImages.loaded) return false;
+
+  const anim: MageAnim = attackProgress > 0 ? "attack" : moving ? "walk" : "idle";
+  const img = mageImages[anim];
+  if (!img || !img.complete || img.naturalWidth === 0) return false;
+
+  const frame = attackProgress > 0
+    ? Math.min(5, Math.floor((1 - attackProgress) * 6))
+    : Math.floor(animTime * (moving ? 10 : 5)) % 6;
+  const row = MAGE_DIR_ROW[facing];
+  // The 128px cells intentionally include generous transparent margins.
+  // Enlarge the cell while keeping its center/feet aligned with other heroes.
+  const drawSize = size * 2;
+  const drawX = x - (drawSize - size) / 2;
+  const drawY = y - (drawSize - size);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    img,
+    frame * MAGE_CELL, row * MAGE_CELL, MAGE_CELL, MAGE_CELL,
+    drawX, drawY, drawSize, drawSize,
+  );
+  ctx.restore();
+  return true;
+}
+
+function drawPaladin(
+  ctx: CanvasRenderingContext2D,
+  facing: Facing,
+  x: number,
+  y: number,
+  size: number,
+  animTime: number,
+  moving: boolean,
+  attackProgress: number,
+): boolean {
+  if (!paladinImages.loaded) return false;
+  const img = attackProgress > 0
+    ? paladinImages.attack
+    : moving ? paladinImages.walk : paladinImages.idle;
+  if (!img || !img.complete || img.naturalWidth === 0) return false;
+
+  const frame = attackProgress > 0
+    ? Math.min(5, Math.floor((1 - attackProgress) * 6))
+    : Math.floor(animTime * (moving ? 10 : 5)) % 6;
+  const row = MAGE_DIR_ROW[facing];
+  const drawSize = size * 2;
+  const drawX = x - (drawSize - size) / 2;
+  const drawY = y - (drawSize - size);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(
+    img,
+    frame * MAGE_CELL, row * MAGE_CELL, MAGE_CELL, MAGE_CELL,
+    drawX, drawY, drawSize, drawSize,
+  );
+  ctx.restore();
+  return true;
+}
+
+// Draws one right-facing fireball frame. The caller controls rotation/position.
+export function drawMageFireball(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  animTime: number,
+): boolean {
+  const img = mageImages.fireball;
+  if (!mageImages.loaded || !img || !img.complete || img.naturalWidth === 0) return false;
+  const frame = Math.floor(animTime * 14) % 6;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(
+    img,
+    frame * MAGE_CELL, 0, MAGE_CELL, MAGE_CELL,
+    -size / 2, -size / 2, size, size,
+  );
   ctx.restore();
   return true;
 }

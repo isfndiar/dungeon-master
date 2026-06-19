@@ -135,8 +135,8 @@ function RaidInner() {
         <canvas
           ref={canvasRef}
           className="game-canvas"
-          width={VIEW_W}
-          height={VIEW_H}
+          width={VIEW_W * SCALE}
+          height={VIEW_H * SCALE}
           tabIndex={0}
           style={{ width: VIEW_W * SCALE, height: VIEW_H * SCALE }}
         />

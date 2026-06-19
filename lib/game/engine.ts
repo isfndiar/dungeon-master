@@ -15,10 +15,12 @@ import {
 import { Item, rollItem, rollRarity, ItemStats } from "./items";
 import {
   preloadHeroSprites, drawHeroDir, facingFromVec, Facing,
+  drawMageFireball,
 } from "./spriteLoader";
 
 export const VIEW_W = 480;
 export const VIEW_H = 270;
+const RENDER_SCALE = 2;
 
 // Play field inset (walls border)
 const WALL = 16;
@@ -203,6 +205,7 @@ export class Engine {
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
+    this.ctx.scale(RENDER_SCALE, RENDER_SCALE);
     this.input = new Input(canvas);
     this.hero = HEROES[heroId];
     this.heroId = heroId;
@@ -523,12 +526,14 @@ export class Engine {
     this.atkAimX = this.aimX;
     this.atkAimY = this.aimY;
     this.atkAnim = 1;
-    this.atkAnimDur = this.hero.attackKind === "ranged" ? 0.18 : 0.22;
+    this.atkAnimDur = this.hero.id === "priest"
+      ? 0.42
+      : this.hero.attackKind === "ranged" ? 0.18 : 0.22;
     if (this.hero.attackKind === "ranged") {
       this.fireProjectile(this.aimX, this.aimY, this.curDmg(), this.hero.projectile!);
     } else {
       this.meleeArc(this.hero.attackRange, this.curDmg());
-      this.spawnSlash();
+      if (this.hero.id !== "priest") this.spawnSlash();
     }
   }
 
@@ -1000,7 +1005,10 @@ export class Engine {
         ctx.fillRect(-size / 2, -1, size, 2);
         ctx.globalAlpha = 1;
       }
-      drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
+      const customFireball = p.from === "player" && this.hero.id === "mage" && p.kind === "fireball"
+        ? drawMageFireball(ctx, size * 3, this.animTime)
+        : false;
+      if (!customFireball) drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
       ctx.restore();
     }
 
@@ -1139,13 +1147,15 @@ export class Engine {
     }
 
     // attack lunge: shove sprite toward aim at the start of the swing
-    const lunge = this.atkAnim > 0 ? Math.sin(this.atkAnim * Math.PI) * 4 : 0;
+    const lunge = this.atkAnim > 0 && this.hero.id !== "priest"
+      ? Math.sin(this.atkAnim * Math.PI) * 4
+      : 0;
     const drawX = this.px + this.atkAimX * lunge;
     const drawY = this.py + this.atkAimY * lunge;
 
     // draw weapon swing BEHIND the sprite if pointing up/left-ish
     const behind = this.atkAimY < -0.3;
-    if (this.atkAnim > 0 && behind) this.drawAttackFx();
+    if (this.atkAnim > 0 && behind && this.hero.id !== "priest") this.drawAttackFx();
 
     if (!flicker) {
       const animType = this.moving ? "walk" : "idle";
@@ -1154,7 +1164,7 @@ export class Engine {
       const drew = drawHeroDir(
         ctx, this.hero.id, this.facing,
         Math.round(drawX - size / 2), Math.round(drawY - size / 2),
-        size, this.animTime, this.moving,
+        size, this.animTime, this.moving, this.atkAnim,
       );
       if (!drew) {
         drawAnim(ctx, "h_" + this.hero.id, heroSprites[this.hero.id], animType,
@@ -1163,7 +1173,7 @@ export class Engine {
     }
 
     // weapon swing in front (default)
-    if (this.atkAnim > 0 && !behind) this.drawAttackFx();
+    if (this.atkAnim > 0 && !behind && this.hero.id !== "priest") this.drawAttackFx();
   }
 
   private drawAttackFx() {

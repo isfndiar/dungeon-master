@@ -8,6 +8,7 @@ import {
 
 export const TOWN_W = 480;
 export const TOWN_H = 270;
+const RENDER_SCALE = 2;
 
 // Which interaction an NPC triggers (handled by the React layer).
 export type TownAction = "dungeon" | "equipment" | "heroes" | "talk" | "shop";
@@ -26,6 +27,10 @@ export interface NpcDef {
 interface Building {
   x: number; y: number; w: number; h: number;
   color: string; roof: string;
+  asset: string;
+  drawSize: number;
+  drawHeight?: number;
+  image?: HTMLImageElement;
   label?: string;
   banner?: string;
 }
@@ -64,10 +69,12 @@ export class TownEngine {
   constructor(canvas: HTMLCanvasElement, heroId: HeroId, cb: TownCallbacks) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
+    this.ctx.scale(RENDER_SCALE, RENDER_SCALE);
     this.input = new Input(canvas);
     this.heroId = heroId;
     this.cb = cb;
     this.buildLayout();
+    this.preloadBuildings();
     preloadHeroSprites();
   }
 
@@ -105,13 +112,27 @@ export class TownEngine {
     // Buildings (decorative + landmarks)
     this.buildings = [
       // Castle (top center)
-      { x: 180, y: 22, w: 120, h: 60, color: "#6a6f7a", roof: "#4a4f59", label: "CASTLE" },
+      {
+        x: 180, y: 22, w: 120, h: 60, color: "#6a6f7a", roof: "#4a4f59",
+        asset: "/sprites/building/noble-manor-royal.png", drawSize: 160, drawHeight: 100,
+        label: "CASTLE",
+      },
       // Blacksmith (left)
-      { x: 40, y: 70, w: 70, h: 48, color: "#7a5a3a", roof: "#5a3a1a", label: "SMITHY" },
+      {
+        x: 40, y: 70, w: 70, h: 48, color: "#7a5a3a", roof: "#5a3a1a",
+        asset: "/sprites/building/noble-manor-forest.png", drawSize: 104, label: "SMITHY",
+      },
       // Shop / market (right)
-      { x: 372, y: 70, w: 70, h: 48, color: "#5a6a8a", roof: "#3a4a6a", label: "MARKET" },
+      {
+        x: 372, y: 70, w: 70, h: 48, color: "#5a6a8a", roof: "#3a4a6a",
+        asset: "/sprites/building/noble-manor-renaissance.png", drawSize: 104, label: "MARKET",
+      },
       // Dungeon gate (bottom center) - dark ominous arch
-      { x: 196, y: 184, w: 88, h: 46, color: "#2a2230", roof: "#1a141f", label: "DUNGEON GATE", banner: "gate" },
+      {
+        x: 196, y: 184, w: 88, h: 46, color: "#2a2230", roof: "#1a141f",
+        asset: "/sprites/building/noble-manor-gothic.png", drawSize: 120,
+        label: "DUNGEON GATE", banner: "gate",
+      },
     ];
 
     // NPCs — each carries a procedural-character bias (gen) that the generator
@@ -180,6 +201,14 @@ export class TownEngine {
     // bake a unique procedural sprite for each NPC (seeded by its id)
     for (const n of this.npcs) {
       n.sprite = generateCharacter(n.id, n.gen);
+    }
+  }
+
+  private preloadBuildings() {
+    for (const b of this.buildings) {
+      const img = new Image();
+      img.src = b.asset;
+      b.image = img;
     }
   }
 
@@ -306,6 +335,21 @@ export class TownEngine {
 
   private drawBuilding(b: Building) {
     const ctx = this.ctx;
+    if (b.image?.complete && b.image.naturalWidth > 0) {
+      // Manor assets have transparent padding. Align the visible foundation
+      // with the original collision rectangle's bottom edge.
+      const drawHeight = b.drawHeight ?? b.drawSize;
+      const drawX = b.x + b.w / 2 - b.drawSize / 2;
+      const drawY = b.y + b.h - drawHeight * 0.86;
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(b.image, drawX, drawY, b.drawSize, drawHeight);
+      ctx.restore();
+      this.drawBuildingLabel(b);
+      return;
+    }
+
     // shadow
     ctx.fillStyle = "rgba(0,0,0,0.2)";
     ctx.fillRect(b.x + 3, b.y + b.h, b.w, 5);
@@ -343,7 +387,11 @@ export class TownEngine {
       ctx.fillRect(b.x + b.w - 16, b.y + 10, 8, 8);
     }
 
-    // label
+    this.drawBuildingLabel(b);
+  }
+
+  private drawBuildingLabel(b: Building) {
+    const ctx = this.ctx;
     if (b.label) {
       ctx.fillStyle = "#000";
       ctx.font = "6px monospace";

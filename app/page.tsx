@@ -29,7 +29,19 @@ function HeroPreview({ id, size = 64 }: { id: HeroId; size?: number }) {
     const ctx = c.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, c.width, c.height);
-    drawSprite(ctx, "h_" + id, heroSprites[id], 0, 0, size);
+    if (id === "mage" || id === "priest") {
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, 128, 128, 0, 0, size, size);
+      };
+      img.src = id === "mage"
+        ? "/custom/idle_6f/elf_mage_idle_6f_4dir_sheet.png"
+        : "/sprites/paladin/idle_6f_4dir/paladin_idle_6f_4dir_sheet.png";
+    } else {
+      drawSprite(ctx, "h_" + id, heroSprites[id], 0, 0, size);
+    }
   }, [id, size]);
   return <canvas ref={ref} width={size} height={size} className="card-canvas" />;
 }
@@ -134,8 +146,8 @@ export default function Town() {
       <div className="town-frame" style={{ width: TOWN_W * SCALE, height: TOWN_H * SCALE }}>
         <canvas
           ref={canvasRef}
-          width={TOWN_W}
-          height={TOWN_H}
+          width={TOWN_W * SCALE}
+          height={TOWN_H * SCALE}
           tabIndex={0}
           style={{ width: TOWN_W * SCALE, height: TOWN_H * SCALE, imageRendering: "pixelated" }}
           onClick={() => {
