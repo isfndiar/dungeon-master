@@ -558,10 +558,18 @@ export class TownEngine {
     if (this.nearby) {
       const n = this.nearby;
       const bounce = Math.sin(performance.now() / 200) * 1.5;
-      ctx.fillStyle = "#ffd24a";
-      ctx.font = "8px monospace";
       ctx.textAlign = "center";
+      // E prompt
+      ctx.font = "bold 10px monospace";
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#000";
+      ctx.strokeText("E", n.x, n.y - 16 + bounce);
+      ctx.fillStyle = "#ffd24a";
       ctx.fillText("E", n.x, n.y - 16 + bounce);
+      // name
+      ctx.font = "bold 8px monospace";
+      ctx.strokeStyle = "#000";
+      ctx.strokeText(n.name, n.x, n.y + 16);
       ctx.fillStyle = "#fff";
       ctx.fillText(n.name, n.x, n.y + 16);
       ctx.textAlign = "left";
@@ -630,12 +638,16 @@ export class TownEngine {
   private drawBuildingLabel(b: Building) {
     const ctx = this.ctx;
     if (b.label) {
-      ctx.fillStyle = "#000";
-      ctx.font = "6px monospace";
+      const fontSize = 9;
+      ctx.font = `bold ${fontSize}px monospace`;
       ctx.textAlign = "center";
-      ctx.fillText(b.label, b.x + b.w / 2 + 1, b.y - 18 + 1);
+      // dark outline for readability
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#000";
+      const labelY = b.y - 22;
+      ctx.strokeText(b.label, b.x + b.w / 2, labelY);
       ctx.fillStyle = "#ffd24a";
-      ctx.fillText(b.label, b.x + b.w / 2, b.y - 18);
+      ctx.fillText(b.label, b.x + b.w / 2, labelY);
       ctx.textAlign = "left";
     }
   }
