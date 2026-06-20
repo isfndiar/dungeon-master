@@ -101,7 +101,7 @@ export function preloadHeroSprites() {
   const frostKnightSources: Record<"idle" | "walk" | "attack", string> = {
     idle: "/sprites/frost_knight/idle_6f_4dir/frost_knight_idle_6f_4dir_sheet.png",
     walk: "/sprites/frost_knight/walk_6f_4dir/frost_knight_walk_6f_4dir_sheet.png",
-    attack: "/sprites/frost_knight/attack_6f_4dir/frost_knight_attack_6f_4dir_sheet.png",
+    attack: "/sprites/frost_knight/attack_4f_4dir/frost_knight_attack_4f_4dir_sheet.png",
   };
   let frostKnightCount = 0;
   for (const key of Object.keys(frostKnightSources) as ("idle" | "walk" | "attack")[]) {
@@ -277,13 +277,18 @@ function drawFrostKnight(
     : moving ? frostKnightImages.walk : frostKnightImages.idle;
   if (!img || !img.complete || img.naturalWidth === 0) return false;
 
-  const frame = attackProgress > 0
-    ? Math.min(5, Math.floor((1 - attackProgress) * 6))
+  const isAttack = attackProgress > 0;
+  const frame = isAttack
+    ? Math.min(3, Math.floor((1 - attackProgress) * 4))
     : Math.floor(animTime * (moving ? 10 : 5)) % 6;
   const row = MAGE_DIR_ROW[facing];
-  const drawSize = size * 2;
+  // The attack frames render the character smaller within the 128px cell than
+  // idle/walk. Scale them up so the knight stays the same on-screen size.
+  const scale = isAttack ? 1.3 : 1;
+  const drawSize = size * 2 * scale;
   const drawX = x - (drawSize - size) / 2;
-  const drawY = y - (drawSize - size);
+  // keep feet anchored to the same baseline as the unscaled sprite
+  const drawY = y - (drawSize - size) - (size * 2) * (scale - 1) * 0.12;
 
   ctx.save();
   ctx.imageSmoothingEnabled = true;

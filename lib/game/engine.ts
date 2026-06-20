@@ -49,12 +49,16 @@ interface Projectile {
   vx: number; vy: number;
   dmg: number;
   from: "player" | "enemy";
-  kind: "fireball" | "arrow" | "bolt";
+  kind: "fireball" | "arrow" | "bolt" | "sword";
   life: number;
   radius: number;
   pierce?: boolean;
   hitSet?: Set<Enemy>;
   big?: boolean;
+  homing?: boolean;        // sword storm: homes on nearest enemy
+  homingTurn?: number;     // max turn rate (rad/sec)
+  hitSet2?: Set<Enemy>;    // swords can hit a few enemies each
+  hitsLeft?: number;       // remaining hits for a homing sword
 }
 
 interface Enemy {
@@ -167,6 +171,10 @@ export class Engine {
   private rapidFire = 0;    // seconds remaining of attack-speed buff
   private healZoneTime = 0; // sanctuary remaining
   private healZoneX = 0; private healZoneY = 0;
+  // knight lifesteal: heals a % of max HP on kill. War Cry boosts it.
+  private lifeStealFrac = 0;       // fraction of max HP healed per kill
+  private lifeStealBuff = 0;       // seconds remaining of lifesteal boost
+  private lifeStealBuffFrac = 0;   // boosted fraction while active
 
   private enemies: Enemy[] = [];
   private projectiles: Projectile[] = [];
@@ -220,6 +228,9 @@ export class Engine {
     this.bonusCdr = Math.min(bonus?.cdr ?? 0, 0.6);
     this.bonusSpeed = bonus?.speed ?? 0;
     this.bonusCrit = Math.min(bonus?.crit ?? 0, 0.75);
+
+    // knight: base 5% lifesteal on kill
+    if (heroId === "knight") this.lifeStealFrac = 0.05;
 
     // total rooms = combat rooms + start + boss
     const total = this.dungeon.rooms + 2;
@@ -489,6 +500,7 @@ export class Engine {
     if (this.dmgBuff > 0) this.dmgBuff -= dt;
     if (this.speedBuff > 0) this.speedBuff -= dt;
     if (this.rapidFire > 0) this.rapidFire -= dt;
+    if (this.lifeStealBuff > 0) this.lifeStealBuff -= dt;
     if (this.healOverTime > 0) {
       this.healOverTime -= dt;
       this.php = Math.min(this.phpMax, this.php + 14 * dt);
@@ -578,9 +590,38 @@ export class Engine {
       }
       case "warcry": {
         this.dmgBuff = 6; this.dmgBuffMult = 1.6;
-        this.php = Math.min(this.phpMax, this.php + this.phpMax * 0.15);
+        // boost lifesteal for the duration
+        this.lifeStealBuff = 6;
+        this.lifeStealBuffFrac = 0.20; // +20% max HP per kill while active
         this.spawnRing(this.px, this.py, "#ff5a5a", 40);
         this.float("WAR CRY!", this.px, this.py - 18, "#ffd24a");
+        break;
+      }
+      case "swordstorm": {
+        // summon 5 flying swords that home on the nearest enemies
+        const count = 5;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2;
+          const ox = Math.cos(ang) * 18;
+          const oy = Math.sin(ang) * 18;
+          this.projectiles.push({
+            x: this.px + ox,
+            y: this.py + oy,
+            vx: Math.cos(ang) * 160,
+            vy: Math.sin(ang) * 160,
+            dmg: dmg * 1.1,
+            from: "player",
+            kind: "sword",
+            life: 3,
+            radius: 7,
+            homing: true,
+            homingTurn: 6,            // rad/sec steering
+            hitSet2: new Set<Enemy>(),
+            hitsLeft: 3,              // each sword hits up to 3 enemies
+          });
+        }
+        this.spawnRing(this.px, this.py, "#c0c8d8", 22);
+        this.float("SWORD STORM", this.px, this.py - 18, "#c0c8d8");
         break;
       }
       // ---- Mage ----
@@ -792,13 +833,46 @@ export class Engine {
 
   private updateProjectiles(dt: number) {
     for (const p of this.projectiles) {
+      // homing swords steer toward the nearest living enemy
+      if (p.homing) {
+        let best: Enemy | null = null;
+        let bestD = Infinity;
+        for (const e of this.enemies) {
+          const d = Math.hypot(e.x - p.x, e.y - p.y);
+          if (d < bestD) { bestD = d; best = e; }
+        }
+        if (best) {
+          const desired = Math.atan2(best.y - p.y, best.x - p.x);
+          const cur = Math.atan2(p.vy, p.vx);
+          let diff = desired - cur;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const turn = Math.max(-p.homingTurn! * dt, Math.min(p.homingTurn! * dt, diff));
+          const ang = cur + turn;
+          const sp = Math.hypot(p.vx, p.vy) || 220;
+          p.vx = Math.cos(ang) * sp;
+          p.vy = Math.sin(ang) * sp;
+        }
+        // trail sparkle
+        if (Math.random() < 0.6) {
+          this.particles.push({ x: p.x, y: p.y, vx: rand(-15, 15), vy: rand(-15, 15), life: 0.25, color: "#c0c8d8" });
+        }
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
       if (p.from === "player") {
         for (const e of this.enemies) {
           if (dist(p.x, p.y, e.x, e.y) < e.size * 0.4 + p.radius) {
-            if (p.pierce) {
+            if (p.kind === "sword") {
+              // homing sword: hit a limited set of enemies, then fade
+              if (p.hitSet2!.has(e)) continue;
+              p.hitSet2!.add(e);
+              this.damageEnemy(e, p.dmg);
+              this.spawnHit(p.x, p.y, "#c0c8d8");
+              p.hitsLeft!--;
+              if (p.hitsLeft! <= 0) { p.life = 0; break; }
+            } else if (p.pierce) {
               if (p.hitSet!.has(e)) continue;
               p.hitSet!.add(e);
               this.damageEnemy(e, p.dmg);
@@ -845,6 +919,15 @@ export class Engine {
     this.xpGained += e.xp;
     this.spawnDeath(e.x, e.y);
     this.float("+" + e.gold + "g", e.x, e.y - 8, "#ffd24a");
+    // knight lifesteal: heal a fraction of max HP on kill (boosted by War Cry)
+    if (this.heroId === "knight") {
+      const frac = this.lifeStealFrac + (this.lifeStealBuff > 0 ? this.lifeStealBuffFrac : 0);
+      if (frac > 0) {
+        const heal = Math.round(this.phpMax * frac);
+        this.php = Math.min(this.phpMax, this.php + heal);
+        this.float("+" + heal, this.px, this.py - 16, "#5fff8f");
+      }
+    }
     this.maybeDropLoot(e);
     this.enemies = this.enemies.filter((x) => x !== e);
   }
@@ -1010,7 +1093,11 @@ export class Engine {
       const customFireball = p.from === "player" && this.hero.id === "mage" && p.kind === "fireball"
         ? drawMageFireball(ctx, size * 3, this.animTime)
         : false;
-      if (!customFireball) drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
+      if (p.kind === "sword") {
+        this.drawSword(ctx);
+      } else if (!customFireball) {
+        drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
+      }
       ctx.restore();
     }
 
@@ -1249,6 +1336,66 @@ export class Engine {
       const s = 6 * (0.5 + t * 0.5);
       ctx.fillRect(tx - s / 2, ty - s / 2, s, s);
     }
+    ctx.restore();
+  }
+
+  private drawSword(ctx: CanvasRenderingContext2D) {
+    // ctx is already translated to sword position and rotated to facing angle.
+    // Draw a long fantasy blade pointing right (+x), origin at center of hilt.
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    // blade body — long tapered rectangle
+    ctx.fillStyle = "#dfe6f5";
+    ctx.beginPath();
+    ctx.moveTo(14, 0);      // tip
+    ctx.lineTo(0, 2.5);     // top base
+    ctx.lineTo(-4, 1.5);    // top guard
+    ctx.lineTo(-4, -1.5);   // bottom guard
+    ctx.lineTo(0, -2.5);    // bottom base
+    ctx.closePath();
+    ctx.fill();
+
+    // blade core highlight
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.moveTo(12, 0);
+    ctx.lineTo(2, 0.8);
+    ctx.lineTo(-2, 0.5);
+    ctx.lineTo(-2, -0.5);
+    ctx.lineTo(2, -0.8);
+    ctx.closePath();
+    ctx.fill();
+
+    // guard
+    ctx.fillStyle = "#c0c8d8";
+    ctx.fillRect(-5, -3.5, 2, 7);
+
+    // handle
+    ctx.fillStyle = "#4a3a2a";
+    ctx.fillRect(-5, -1.5, -5, 3);
+
+    // pommel
+    ctx.fillStyle = "#c0c8d8";
+    ctx.beginPath();
+    ctx.arc(-10, 0, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // faint glow aura
+    ctx.strokeStyle = "rgba(223,230,245,0.25)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(14, 0);
+    ctx.lineTo(0, 2.5);
+    ctx.lineTo(-4, 1.5);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(14, 0);
+    ctx.lineTo(0, -2.5);
+    ctx.lineTo(-4, -1.5);
+    ctx.stroke();
+
     ctx.restore();
   }
 

@@ -606,6 +606,10 @@ export const fxSprites: Record<string, SpriteDef> = {
     palette: { a: "#b388ff", b: "#7ad7ff" },
     rows: ["..b..", ".bab.", "baaab", ".bab.", "..b.."],
   },
+  sword: {
+    palette: { h: "#6f7a8a", s: "#dfe6f5", w: "#ffffff", b: "#9aa8c8" },
+    rows: ["....w", "...ws", "bbshs", "...ws", "....w"],
+  },
   heal: {
     palette: { g: "#5fff8f", w: "#dfffe8" },
     rows: ["..g..", "..g..", "ggwgg", "..g..", "..g.."],

@@ -6,7 +6,7 @@ export type SkillKind =
   // original
   | "spin" | "meteor" | "heal" | "taunt" | "multishot"
   // new
-  | "charge" | "warcry"        // knight
+  | "charge" | "warcry" | "swordstorm"  // knight
   | "frostnova" | "blink"      // mage
   | "smite" | "sanctuary"      // priest
   | "groundslam" | "berserk"   // tank
@@ -51,8 +51,8 @@ export const HEROES: Record<HeroId, HeroDef> = {
     color: "#c0c8d8",
     skills: [
       { key: "1", name: "Charge",     desc: "Dash forward, damaging all in your path.", cooldown: 5, kind: "charge" },
-      { key: "2", name: "Spin Slash", desc: "AoE melee burst around you.",              cooldown: 6, kind: "spin" },
-      { key: "3", name: "War Cry",    desc: "Buff: +damage & heal for a few seconds.",  cooldown: 14, kind: "warcry" },
+      { key: "2", name: "Sword Storm", desc: "Summon 5 flying swords that home on foes.", cooldown: 6, kind: "swordstorm" },
+      { key: "3", name: "War Cry",     desc: "+damage & boost lifesteal for a few seconds.", cooldown: 14, kind: "warcry" },
     ],
   },
   mage: {
