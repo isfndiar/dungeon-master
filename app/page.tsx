@@ -7,7 +7,7 @@ import {
 } from "@/lib/game/heroes";
 import { DUNGEONS, DUNGEON_IDS, DungeonId } from "@/lib/game/dungeons";
 import { heroSprites, drawSprite } from "@/lib/game/sprites";
-import { TownEngine, TOWN_W, TOWN_H, NpcDef, TownAction } from "@/lib/game/town";
+import { TownEngine, NpcDef, TownAction } from "@/lib/game/town";
 import {
   loadSave, resetSave, writeSave, SaveData,
   heroBonusStats, equippedItems, equipItem, unequip, discardItem,
@@ -16,8 +16,6 @@ import {
   Item, EquipSlot, EQUIP_SLOTS, SLOT_LABEL, RARITY_COLOR, RARITY_LABEL,
   itemStatLines, formatStat, itemPower,
 } from "@/lib/game/items";
-
-const SCALE = 2;
 
 type Panel = "none" | "heroes" | "equipment" | "dungeon";
 
@@ -98,11 +96,17 @@ export default function Town() {
         handleInteract(n);
       },
     });
-    engine.setScale(SCALE);
     engineRef.current = engine;
     engine.start();
 
+    const ro = new ResizeObserver(() => engine.resize());
+    ro.observe(canvas);
+    const onWinResize = () => engine.resize();
+    window.addEventListener("resize", onWinResize);
+
     return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", onWinResize);
       engine.destroy();
       engineRef.current = null;
     };
@@ -143,13 +147,11 @@ export default function Town() {
         </div>
       </div>
 
-      <div className="town-frame" style={{ width: TOWN_W * SCALE, height: TOWN_H * SCALE }}>
+      <div className="town-frame">
         <canvas
           ref={canvasRef}
-          width={TOWN_W * SCALE}
-          height={TOWN_H * SCALE}
           tabIndex={0}
-          style={{ width: TOWN_W * SCALE, height: TOWN_H * SCALE, imageRendering: "pixelated" }}
+          style={{ width: "100%", height: "100%", display: "block", imageRendering: "pixelated" }}
           onClick={() => {
             canvasRef.current?.focus();
             if (panel === "none" && !dialog) engineRef.current?.interactNearby();

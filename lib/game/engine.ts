@@ -528,12 +528,14 @@ export class Engine {
     this.atkAnim = 1;
     this.atkAnimDur = this.hero.id === "priest"
       ? 0.42
-      : this.hero.attackKind === "ranged" ? 0.18 : 0.22;
+      : this.hero.id === "knight"
+        ? 0.42
+        : this.hero.attackKind === "ranged" ? 0.18 : 0.22;
     if (this.hero.attackKind === "ranged") {
       this.fireProjectile(this.aimX, this.aimY, this.curDmg(), this.hero.projectile!);
     } else {
       this.meleeArc(this.hero.attackRange, this.curDmg());
-      if (this.hero.id !== "priest") this.spawnSlash();
+      if (this.hero.id !== "priest" && this.hero.id !== "knight") this.spawnSlash();
     }
   }
 
@@ -1155,7 +1157,7 @@ export class Engine {
 
     // draw weapon swing BEHIND the sprite if pointing up/left-ish
     const behind = this.atkAimY < -0.3;
-    if (this.atkAnim > 0 && behind && this.hero.id !== "priest") this.drawAttackFx();
+    if (this.atkAnim > 0 && behind && this.hero.id !== "priest" && this.hero.id !== "knight") this.drawAttackFx();
 
     if (!flicker) {
       const animType = this.moving ? "walk" : "idle";
@@ -1173,7 +1175,7 @@ export class Engine {
     }
 
     // weapon swing in front (default)
-    if (this.atkAnim > 0 && !behind && this.hero.id !== "priest") this.drawAttackFx();
+    if (this.atkAnim > 0 && !behind && this.hero.id !== "priest" && this.hero.id !== "knight") this.drawAttackFx();
   }
 
   private drawAttackFx() {

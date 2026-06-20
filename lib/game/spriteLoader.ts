@@ -30,9 +30,17 @@ interface PaladinImages {
   loaded: boolean;
 }
 
+interface FrostKnightImages {
+  idle?: HTMLImageElement;
+  walk?: HTMLImageElement;
+  attack?: HTMLImageElement;
+  loaded: boolean;
+}
+
 const heroImages: Record<string, HeroImages> = {};
 const mageImages: MageImages = { loaded: false };
 const paladinImages: PaladinImages = { loaded: false };
+const frostKnightImages: FrostKnightImages = { loaded: false };
 let preloadStarted = false;
 
 const HERO_IDS = ["knight", "mage", "priest", "tank", "archer"] as const;
@@ -89,6 +97,20 @@ export function preloadHeroSprites() {
     img.onerror = done;
     paladinImages[key] = img;
   }
+
+  const frostKnightSources: Record<"idle" | "walk" | "attack", string> = {
+    idle: "/sprites/frost_knight/idle_6f_4dir/frost_knight_idle_6f_4dir_sheet.png",
+    walk: "/sprites/frost_knight/walk_6f_4dir/frost_knight_walk_6f_4dir_sheet.png",
+    attack: "/sprites/frost_knight/attack_6f_4dir/frost_knight_attack_6f_4dir_sheet.png",
+  };
+  let frostKnightCount = 0;
+  for (const key of Object.keys(frostKnightSources) as ("idle" | "walk" | "attack")[]) {
+    const img = loadImg(frostKnightSources[key]);
+    const done = () => { if (++frostKnightCount >= 3) frostKnightImages.loaded = true; };
+    img.onload = done;
+    img.onerror = done;
+    frostKnightImages[key] = img;
+  }
 }
 
 export function heroSpritesReady(id: string): boolean {
@@ -121,6 +143,9 @@ export function drawHeroDir(
     ctx, facing, x, y, size, walkPhase, moving, attackProgress,
   )) return true;
   if (id === "priest" && drawPaladin(
+    ctx, facing, x, y, size, walkPhase, moving, attackProgress,
+  )) return true;
+  if (id === "knight" && drawFrostKnight(
     ctx, facing, x, y, size, walkPhase, moving, attackProgress,
   )) return true;
 
@@ -214,6 +239,42 @@ function drawPaladin(
   const img = attackProgress > 0
     ? paladinImages.attack
     : moving ? paladinImages.walk : paladinImages.idle;
+  if (!img || !img.complete || img.naturalWidth === 0) return false;
+
+  const frame = attackProgress > 0
+    ? Math.min(5, Math.floor((1 - attackProgress) * 6))
+    : Math.floor(animTime * (moving ? 10 : 5)) % 6;
+  const row = MAGE_DIR_ROW[facing];
+  const drawSize = size * 2;
+  const drawX = x - (drawSize - size) / 2;
+  const drawY = y - (drawSize - size);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(
+    img,
+    frame * MAGE_CELL, row * MAGE_CELL, MAGE_CELL, MAGE_CELL,
+    drawX, drawY, drawSize, drawSize,
+  );
+  ctx.restore();
+  return true;
+}
+
+function drawFrostKnight(
+  ctx: CanvasRenderingContext2D,
+  facing: Facing,
+  x: number,
+  y: number,
+  size: number,
+  animTime: number,
+  moving: boolean,
+  attackProgress: number,
+): boolean {
+  if (!frostKnightImages.loaded) return false;
+  const img = attackProgress > 0
+    ? frostKnightImages.attack
+    : moving ? frostKnightImages.walk : frostKnightImages.idle;
   if (!img || !img.complete || img.naturalWidth === 0) return false;
 
   const frame = attackProgress > 0
