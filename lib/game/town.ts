@@ -105,6 +105,8 @@ export class TownEngine {
   private buildings: Building[] = [];
   private grassTile?: HTMLImageElement;
   private grassPattern?: CanvasPattern;
+  private roadTile?: HTMLImageElement;
+  private roadPattern?: CanvasPattern;
   private nearby: NpcDef | null = null;
   private prevInteract = false;
 
@@ -203,6 +205,12 @@ export class TownEngine {
         x: 560, y: 600, w: 170, h: 90, color: "#2a2230", roof: "#1a141f",
         asset: "/sprites/building/noble-manor-gothic.png", drawSize: 240,
         label: "DUNGEON GATE", banner: "gate",
+      },
+      // Endless raid cave entrance (bottom right, aligned with dungeon gate)
+      {
+        x: 980, y: 600, w: 170, h: 90, color: "#1a1818", roof: "#0f0f0f",
+        asset: "/sprites/building/dungeon-cave-entrance.png", drawSize: 240,
+        label: "RAID ENDLESS", banner: "gate",
       },
     ];
 
@@ -371,6 +379,9 @@ export class TownEngine {
     const grass = new Image();
     grass.src = "/terrain/grass-tile.png";
     this.grassTile = grass;
+    const road = new Image();
+    road.src = "/terrain/gray-brick-road-tile.png";
+    this.roadTile = road;
   }
 
   // collision: player feet (a small box at the sprite base) vs building bodies
@@ -532,21 +543,28 @@ export class TownEngine {
       }
     }
 
-    // stone paths connecting the landmarks
-    ctx.fillStyle = "#9a8f7a";
-    const cx = WORLD_W / 2;
-    ctx.fillRect(cx - 18, 120, 36, WORLD_H - 200);          // central vertical
-    ctx.fillRect(120, WORLD_H / 2 - 14, WORLD_W - 240, 28); // central horizontal
-    // path cobble detail (visible region only)
-    ctx.fillStyle = "#8a7f6a";
-    const py0 = Math.max(124, Math.floor(y0 / 12) * 12);
-    for (let y = py0; y < Math.min(WORLD_H - 80, y1); y += 12) ctx.fillRect(cx - 16, y, 32, 5);
+    // town square plaza — tiled brick texture, spanning left to right buildings
+    const road = this.roadTile;
+    if (road?.complete && road.naturalWidth > 0) {
+      if (!this.roadPattern) {
+        this.roadPattern = ctx.createPattern(road, "repeat") ?? undefined;
+      }
+      if (this.roadPattern) {
+        ctx.fillStyle = this.roadPattern;
+        // wide rectangular plaza: from left castle edge to right market/endless
+        ctx.fillRect(120, 340, 1040, 230);
+      }
+    } else {
+      ctx.fillStyle = "#9a8f7a";
+      ctx.fillRect(120, 340, 1040, 230);
+    }
 
-    // buildings (draw back-to-front by y)
-    for (const b of this.buildings) this.drawBuilding(b);
-
-    // entities (NPCs + player) sorted by y for overlap
+    // buildings + entities interleaved by Y for depth sorting
+    // (entities behind buildings are hidden)
     const draws: { y: number; fn: () => void }[] = [];
+    for (const b of this.buildings) {
+      draws.push({ y: b.y + b.h, fn: () => this.drawBuilding(b) });
+    }
     for (const n of this.npcs) {
       draws.push({ y: n.y, fn: () => this.drawNpc(n) });
     }
