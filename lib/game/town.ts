@@ -17,7 +17,7 @@ export const WORLD_H = 800;
 const PIXEL_SCALE = 3;
 
 // Which interaction an NPC triggers (handled by the React layer).
-export type TownAction = "dungeon" | "equipment" | "heroes" | "talk" | "shop";
+export type TownAction = "dungeon" | "equipment" | "heroes" | "talk" | "shop" | "endless";
 
 export interface NpcDef {
   id: string;
@@ -251,6 +251,15 @@ export class TownEngine {
         lines: [
           "The dungeon gate lies beyond.",
           "Pick your destination, and may fortune favor you.",
+        ],
+      },
+      {
+        id: "endless_guard", name: "Portal Keeper",
+        gen: { headgear: "helmet", cloth: "#2a2a33", trim: "#c0c8d8", hair: "#3a3a44" },
+        x: 1065, y: 710, action: "endless", facing: -1,
+        lines: [
+          "The endless abyss awaits the brave.",
+          "No retreat. No mercy. How long can you survive?",
         ],
       },
       {
@@ -553,10 +562,13 @@ export class TownEngine {
         ctx.fillStyle = this.roadPattern;
         // wide rectangular plaza: from left castle edge to right market/endless
         ctx.fillRect(120, 340, 1040, 230);
+        // castle courtyard: brick area in front of the top-center castle
+        ctx.fillRect(460, 200, 360, 140);
       }
     } else {
       ctx.fillStyle = "#9a8f7a";
       ctx.fillRect(120, 340, 1040, 230);
+      ctx.fillRect(460, 200, 360, 140);
     }
 
     // buildings + entities interleaved by Y for depth sorting

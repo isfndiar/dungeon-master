@@ -153,16 +153,24 @@ function RaidInner() {
               </div>
               <div className="hud-right">
                 <div>{hud.dungeonName}</div>
-                <div>Rooms {hud.roomsCleared}/{hud.totalRooms}</div>
+                {hud.isEndless ? (
+                  <div>Wave {hud.wave ?? 0}</div>
+                ) : (
+                  <div>Rooms {hud.roomsCleared}/{hud.totalRooms}</div>
+                )}
                 <div>Enemies: {hud.enemiesLeft}</div>
                 <div>◆ {hud.goldGained}</div>
-                <div style={{ color: hud.bossFound ? "#ff5a5a" : "var(--muted)" }}>
-                  {hud.bossFound ? "☠ Boss found!" : "Find the boss…"}
-                </div>
+                {hud.isEndless ? (
+                  hud.bossFound ? <div style={{ color: "#ff5a5a" }}>☠ Boss wave!</div> : null
+                ) : (
+                  <div style={{ color: hud.bossFound ? "#ff5a5a" : "var(--muted)" }}>
+                    {hud.bossFound ? "☠ Boss found!" : "Find the boss…"}
+                  </div>
+                )}
               </div>
             </div>
 
-            <Minimap data={hud.minimap} />
+            {!hud.isEndless && <Minimap data={hud.minimap} />}
 
             <div className="skill-bar">
               {hud.skills.map((s, i) => (
@@ -206,7 +214,11 @@ function RaidInner() {
         {result && (
           <div className="overlay">
             <h2 className={result.win ? "win" : "lose"}>
-              {result.win ? "DUNGEON CLEARED!" : "YOU FELL..."}
+              {result.win
+                ? "DUNGEON CLEARED!"
+                : result.wave != null
+                  ? `SLAIN AT WAVE ${result.wave}`
+                  : "YOU FELL..."}
             </h2>
             <div className="reward">
               ◆ Gold +{result.goldGained}<br />
@@ -246,7 +258,9 @@ function RaidInner() {
       </div>
 
       <div className="controls-hint">
-        {dungeon.name} — reach the glowing gate after each room. Defeat the boss to win.
+        {dungeon.endless
+          ? "WASD move, mouse aim, click/space attack, 1-3 skills. Survive endless waves!"
+          : `${dungeon.name} — reach the glowing gate after each room. Defeat the boss to win.`}
       </div>
     </div>
   );

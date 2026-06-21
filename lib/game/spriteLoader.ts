@@ -41,6 +41,14 @@ const heroImages: Record<string, HeroImages> = {};
 const mageImages: MageImages = { loaded: false };
 const paladinImages: PaladinImages = { loaded: false };
 const frostKnightImages: FrostKnightImages = { loaded: false };
+const elfArcherImages: {
+  idle?: HTMLImageElement;
+  walk?: HTMLImageElement;
+  attack?: HTMLImageElement;
+  loaded: boolean;
+} = { loaded: false };
+let arrowStripLoaded = false;
+let arrowStripImage: HTMLImageElement | undefined;
 let preloadStarted = false;
 
 const HERO_IDS = ["knight", "mage", "priest", "tank", "archer"] as const;
@@ -111,6 +119,23 @@ export function preloadHeroSprites() {
     img.onerror = done;
     frostKnightImages[key] = img;
   }
+
+  const elfArcherSources: Record<"idle" | "walk" | "attack", string> = {
+    idle: "/sprites/elf_archer/archer-idle/final/idle-6f-3dir-spritesheet.png",
+    walk: "/sprites/elf_archer/archer-walk/final/walk-spritesheet.png",
+    attack: "/sprites/elf_archer/archer-attack-6f/final/attack-current-3dir-spritesheet.png",
+  };
+  let elfArcherCount = 0;
+  for (const key of Object.keys(elfArcherSources) as ("idle" | "walk" | "attack")[]) {
+    const img = loadImg(elfArcherSources[key]);
+    const done = () => { if (++elfArcherCount >= 3) elfArcherImages.loaded = true; };
+    img.onload = done;
+    img.onerror = done;
+    elfArcherImages[key] = img;
+  }
+
+  arrowStripImage = loadImg("/sprites/elf_archer/arrow-projectile/arrow-projectile-3dir-strip.png");
+  arrowStripImage.onload = arrowStripImage.onerror = () => { arrowStripLoaded = true; };
 }
 
 export function heroSpritesReady(id: string): boolean {
@@ -148,6 +173,9 @@ export function drawHeroDir(
   if (id === "knight" && drawFrostKnight(
     ctx, facing, x, y, size, walkPhase, moving, attackProgress,
   )) return true;
+  if (id === "archer" && drawElfArcher(
+    ctx, facing, x, y, size, walkPhase, moving, attackProgress,
+  )) return true;
 
   const rec = heroImages[id];
   if (!rec || !rec.loaded) return false;
@@ -181,6 +209,15 @@ export function drawHeroDir(
 }
 
 const MAGE_CELL = 128;
+
+// Elf archer idle/attack sheets use 3-direction layout (down/left/up), no dedicated right
+const ELF_ARCHER_DIR_ROW_3DIR: Record<Facing, number> = {
+  down: 0,
+  left: 1,
+  right: 1,
+  up: 2,
+};
+
 const MAGE_DIR_ROW: Record<Facing, number> = {
   down: 0,
   left: 1,
@@ -298,6 +335,71 @@ function drawFrostKnight(
     frame * MAGE_CELL, row * MAGE_CELL, MAGE_CELL, MAGE_CELL,
     drawX, drawY, drawSize, drawSize,
   );
+  ctx.restore();
+  return true;
+}
+
+function drawElfArcher(
+  ctx: CanvasRenderingContext2D,
+  facing: Facing,
+  x: number,
+  y: number,
+  size: number,
+  animTime: number,
+  moving: boolean,
+  attackProgress: number,
+): boolean {
+  if (!elfArcherImages.loaded) return false;
+  const isAttack = attackProgress > 0;
+  const isWalk = !isAttack && moving;
+  const sheet = isAttack
+    ? elfArcherImages.attack
+    : isWalk ? elfArcherImages.walk : elfArcherImages.idle;
+  if (!sheet || !sheet.complete || sheet.naturalWidth === 0) return false;
+
+  const CELL = 128;
+  const row = isWalk
+    ? MAGE_DIR_ROW[facing]
+    : ELF_ARCHER_DIR_ROW_3DIR[facing];
+
+  const frame = isAttack
+    ? Math.min(5, Math.floor((1 - attackProgress) * 6))
+    : isWalk
+      ? Math.floor(animTime * 10) % 4
+      : Math.floor(animTime * 5) % 6;
+
+  const flip = !isWalk && facing === "right";
+  const drawSize = size * 2;
+  const drawX = x - (drawSize - size) / 2;
+  const drawY = y - (drawSize - size);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  if (flip) {
+    ctx.translate(drawX + drawSize, drawY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sheet, frame * CELL, row * CELL, CELL, CELL, 0, 0, drawSize, drawSize);
+  } else {
+    ctx.drawImage(sheet, frame * CELL, row * CELL, CELL, CELL, drawX, drawY, drawSize, drawSize);
+  }
+  ctx.restore();
+  return true;
+}
+
+export function drawElfArrow(
+  ctx: CanvasRenderingContext2D,
+  _vx: number,
+  _vy: number,
+  size: number,
+): boolean {
+  if (!arrowStripLoaded || !arrowStripImage) return false;
+  const CELL = 128;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  // Mirror frame 0 (arrow-left → arrow-right), engine rotation handles direction
+  ctx.scale(-1, 1);
+  ctx.drawImage(arrowStripImage, 0, 0, CELL, CELL, -size / 2, -size / 2, size, size);
   ctx.restore();
   return true;
 }

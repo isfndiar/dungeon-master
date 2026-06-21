@@ -3,7 +3,7 @@ import {
   HEROES, HeroId, HeroDef, hpForLevel, dmgForLevel, SkillDef, SkillKind,
 } from "./heroes";
 import {
-  MONSTERS, BOSSES, MonsterDef, BossDef, MonsterKind,
+  MONSTERS, BOSSES, MonsterDef, BossDef, BossKind, MonsterKind,
 } from "./monsters";
 import { DUNGEONS, DungeonId, DungeonDef } from "./dungeons";
 import {
@@ -15,7 +15,7 @@ import {
 import { Item, rollItem, rollRarity, ItemStats } from "./items";
 import {
   preloadHeroSprites, drawHeroDir, facingFromVec, Facing,
-  drawMageFireball,
+  drawMageFireball, drawElfArrow,
 } from "./spriteLoader";
 
 export const VIEW_W = 480;
@@ -86,6 +86,7 @@ export interface RaidResult {
   xpGained: number;
   monstersKilled: number;
   loot: Item[];
+  wave?: number; // for endless mode
 }
 
 export interface EngineCallbacks {
@@ -128,6 +129,8 @@ export interface HudState {
   bossName?: string; bossHp?: number; bossMax?: number;
   goldGained: number; xpGained: number;
   monstersKilled: number;
+  isEndless?: boolean;
+  wave?: number;
 }
 
 export class Engine {
@@ -189,6 +192,12 @@ export class Engine {
   private clearedTimer = 0;
   private introTimer = 1.2;
 
+  // endless mode
+  private isEndless = false;
+  private wave = 0;              // current wave number
+  private waveSpawned = false;   // enemies spawned for current wave
+  private waveClearTimer = 0;    // pause after clearing wave before next
+
   private goldGained = 0;
   private xpGained = 0;
   private monstersKilled = 0;
@@ -232,10 +241,29 @@ export class Engine {
     // knight: base 5% lifesteal on kill
     if (heroId === "knight") this.lifeStealFrac = 0.05;
 
-    // total rooms = combat rooms + start + boss
-    const total = this.dungeon.rooms + 2;
-    this.map = generateMap(total);
-    this.curRoom = this.map.rooms.find((r) => r.id === this.map.startId)!;
+    // endless mode: skip map generation, use wave-based arena
+    this.isEndless = !!this.dungeon.endless;
+    if (!this.isEndless) {
+      const total = this.dungeon.rooms + 2;
+      this.map = generateMap(total);
+      this.curRoom = this.map.rooms.find((r) => r.id === this.map.startId)!;
+    } else {
+      // dummy map + room for endless (no doors, open arena)
+      this.map = {
+        startId: 0,
+        bossId: 0,
+        gridW: 1, gridH: 1,
+        maxDepth: 0,
+        rooms: [{
+          id: 0, gx: 0, gy: 0,
+          doors: { n: false, s: false, w: false, e: false },
+          neighbors: {},
+          depth: 0, isStart: true, isBoss: false,
+          cleared: false, visited: true,
+        }],
+      };
+      this.curRoom = this.map.rooms[0];
+    }
   }
 
   setScale(scale: number) {
@@ -247,7 +275,7 @@ export class Engine {
     this.last = performance.now();
     this.px = VIEW_W / 2;
     this.py = VIEW_H / 2;
-    this.enterRoom(this.curRoom, null);
+    if (!this.isEndless) this.enterRoom(this.curRoom, null);
     this.phase = "intro";
     this.loop(this.last);
   }
@@ -347,6 +375,63 @@ export class Engine {
     });
   }
 
+  private spawnEndlessWave() {
+    this.wave++;
+    this.waveSpawned = true;
+    const diff = 1 + this.wave * 0.12;
+    const count = 3 + Math.floor(this.wave * 1.1);
+
+    // every 10th wave: boss + reduced minions
+    if (this.wave % 10 === 0) {
+      const bosses = this.dungeon.bosses;
+      if (bosses && bosses.length > 0) {
+        const bossKind = bosses[Math.floor(Math.random() * bosses.length)];
+        const def: BossDef = BOSSES[bossKind];
+        const bossHp = Math.round(def.hp * diff * 1.5);
+        this.enemies.push({
+          x: VIEW_W / 2, y: FIELD.y + 40,
+          hp: bossHp, maxHp: bossHp,
+          dmg: Math.round(def.dmg * diff), speed: def.speed,
+          ranged: def.ranged, projectile: def.projectile,
+          atkTimer: 1, atkCooldown: def.attackCooldown,
+          size: def.size,
+          sprite: bossSprites[def.kind], spriteKey: "b_" + def.kind,
+          gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
+          isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
+        });
+        this.float("BOSS WAVE!", VIEW_W / 2, VIEW_H / 2 - 30, "#ff3a1a");
+      }
+      // fewer minions alongside boss
+      const minionCount = Math.floor(count * 0.4);
+      for (let i = 0; i < minionCount; i++) {
+        this.spawnEndlessMonster(diff);
+      }
+    } else {
+      for (let i = 0; i < count; i++) {
+        this.spawnEndlessMonster(diff);
+      }
+    }
+    this.float("WAVE " + this.wave, VIEW_W / 2, VIEW_H / 2 - 10, "#c0c8d8");
+  }
+
+  private spawnEndlessMonster(diff: number) {
+    const pool = this.dungeon.monsters;
+    const kind = pool[Math.floor(Math.random() * pool.length)];
+    const def: MonsterDef = MONSTERS[kind];
+    const p = this.edgePos();
+    this.enemies.push({
+      x: p.x, y: p.y,
+      hp: Math.round(def.hp * diff), maxHp: Math.round(def.hp * diff),
+      dmg: Math.round(def.dmg * diff), speed: def.speed,
+      ranged: def.ranged, projectile: def.projectile,
+      atkTimer: rand(0, def.attackCooldown), atkCooldown: def.attackCooldown,
+      size: def.size,
+      sprite: monsterSprites[kind], spriteKey: "m_" + kind,
+      gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
+      isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+    });
+  }
+
   // ---------- main loop ----------
   private loop = (now: number) => {
     if (!this.running) return;
@@ -364,7 +449,10 @@ export class Engine {
   private update(dt: number) {
     if (this.phase === "intro") {
       this.introTimer -= dt;
-      if (this.introTimer <= 0) this.phase = "playing";
+      if (this.introTimer <= 0) {
+        this.phase = "playing";
+        if (this.isEndless) this.spawnEndlessWave();
+      }
       this.updateAimFromInput();
       return;
     }
@@ -383,19 +471,38 @@ export class Engine {
 
     // newly cleared this frame?
     if (!this.curRoom.cleared && this.enemies.length === 0) {
-      this.curRoom.cleared = true;
-      this.roomsCleared++;
-      if (this.curRoom.isBoss) {
-        this.endRaid(true);
-        return;
+      if (this.isEndless) {
+        // endless: wave cleared, start pause before next wave
+        this.waveClearTimer = 5;
+        this.waveSpawned = false;
+        this.goldGained += 10 + this.wave * 2;
+        this.xpGained += 5 + this.wave;
+        this.float("WAVE " + this.wave + " CLEAR", VIEW_W / 2, VIEW_H / 2 - 20, "#ffd24a");
+        this.curRoom.cleared = true;
+      } else {
+        this.curRoom.cleared = true;
+        this.roomsCleared++;
+        if (this.curRoom.isBoss) {
+          this.endRaid(true);
+          return;
+        }
+        this.clearedTimer = 0;
       }
-      this.clearedTimer = 0;
     }
     if (!this.curRoom.cleared) this.clearedTimer = 0;
-    else this.clearedTimer += dt;
+    else if (!this.isEndless) this.clearedTimer += dt;
+
+    // endless wave timer: after pause, spawn next wave
+    if (this.isEndless && this.curRoom.cleared && !this.waveSpawned) {
+      this.waveClearTimer -= dt;
+      if (this.waveClearTimer <= 0) {
+        this.curRoom.cleared = false;
+        this.spawnEndlessWave();
+      }
+    }
 
     // door transitions (only when room cleared and not mid-transition)
-    if (this.curRoom.cleared && this.transition <= 0) {
+    if (!this.isEndless && this.curRoom.cleared && this.transition <= 0) {
       this.checkDoorTransition();
     }
 
@@ -430,6 +537,12 @@ export class Engine {
   // Keep player inside the room. When the room is cleared, the player may
   // step slightly into an open doorway (which triggers the transition).
   private clampToRoom() {
+    // endless: open arena, no walls
+    if (this.isEndless) {
+      this.px = clamp(this.px, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+      this.py = clamp(this.py, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+      return;
+    }
     const open = this.curRoom.cleared;
     const cN = doorCenter("n"), cS = doorCenter("s"), cW = doorCenter("w"), cE = doorCenter("e");
 
@@ -933,8 +1046,9 @@ export class Engine {
   }
 
   private maybeDropLoot(e: Enemy) {
-    // item level scales with dungeon difficulty + room depth
-    const ilvl = Math.max(1, Math.round(this.dungeon.difficulty * 4 + this.curRoom.depth));
+    // item level scales with dungeon difficulty + depth (or wave for endless)
+    const depth = this.isEndless ? this.wave : this.curRoom.depth;
+    const ilvl = Math.max(1, Math.round(this.dungeon.difficulty * 4 + depth));
     if (e.isBoss) {
       // boss always drops 2 items with luck bias
       const n = 2;
@@ -1012,13 +1126,17 @@ export class Engine {
     if (this.ended) return;
     this.ended = true;
     this.phase = win ? "win" : "lose";
+    // endless mode: always keep all loot (earned per wave, not per dungeon)
+    const keepLoot = this.isEndless
+      ? this.loot
+      : win ? this.loot : this.loot.slice(0, Math.floor(this.loot.length / 2));
     const result: RaidResult = {
       win,
       goldGained: this.goldGained,
       xpGained: win ? this.xpGained : Math.round(this.xpGained * 0.4),
       monstersKilled: this.monstersKilled,
-      // keep all loot on win; salvage half (rounded down) on defeat
-      loot: win ? this.loot : this.loot.slice(0, Math.floor(this.loot.length / 2)),
+      loot: keepLoot,
+      wave: this.isEndless ? this.wave : undefined,
     };
     setTimeout(() => this.cb.onEnd(result), 900);
   }
@@ -1049,8 +1167,8 @@ export class Engine {
       ctx.fillRect(x + 1, VIEW_H - 15, 14, 6);
     }
 
-    // carve out + draw doors
-    this.drawDoors();
+    // carve out + draw doors (skip for endless)
+    if (!this.isEndless) this.drawDoors();
 
     // heal zone (sanctuary)
     if (this.healZoneTime > 0) {
@@ -1082,7 +1200,6 @@ export class Engine {
       const angle = Math.atan2(p.vy, p.vx);
       ctx.save();
       ctx.translate(p.x, p.y);
-      ctx.rotate(angle);
       const size = p.big ? 16 : 10;
       if (p.big) {
         ctx.globalAlpha = 0.5;
@@ -1090,13 +1207,19 @@ export class Engine {
         ctx.fillRect(-size / 2, -1, size, 2);
         ctx.globalAlpha = 1;
       }
-      const customFireball = p.from === "player" && this.hero.id === "mage" && p.kind === "fireball"
-        ? drawMageFireball(ctx, size * 3, this.animTime)
-        : false;
-      if (p.kind === "sword") {
-        this.drawSword(ctx);
-      } else if (!customFireball) {
-        drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
+      ctx.rotate(angle);
+      const isCustomArrow = p.kind === "arrow" && p.from === "player" && this.hero.id === "archer";
+      if (isCustomArrow) {
+        drawElfArrow(ctx, p.vx, p.vy, size * 2.5);
+      } else {
+        const customFireball = p.from === "player" && this.hero.id === "mage" && p.kind === "fireball"
+          ? drawMageFireball(ctx, size * 3, this.animTime)
+          : false;
+        if (p.kind === "sword") {
+          this.drawSword(ctx);
+        } else if (!customFireball) {
+          drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
+        }
       }
       ctx.restore();
     }
@@ -1130,7 +1253,13 @@ export class Engine {
 
     // overlays
     if (this.phase === "intro") {
-      this.banner(this.dungeon.name, "Clear rooms, find the boss \u2620");
+      if (this.isEndless) {
+        this.banner("RAID ENDLESS", "Survive as long as you can\u2014boss every 10 waves");
+      } else {
+        this.banner(this.dungeon.name, "Clear rooms, find the boss \u2620");
+      }
+    } else if (this.isEndless) {
+      // endless: wave clear banner already handled by float text
     } else if (this.curRoom.isBoss && !this.curRoom.cleared) {
       // brief boss warning handled by boss bar; no banner spam
     } else if (this.curRoom.cleared && this.clearedTimer < 1.4 && !this.curRoom.isStart) {
@@ -1492,8 +1621,11 @@ export class Engine {
       cdPct: this.skillTimers[i] <= 0 ? 1 : 1 - this.skillTimers[i] / s.cooldown,
       active: this.skillActive(s.kind),
     }));
-    const totalRooms = this.map.rooms.length;
-    const clearedCount = this.map.rooms.filter((r) => r.cleared && !r.isStart).length;
+    const totalRooms = this.isEndless ? 0 : this.map.rooms.length;
+    const clearedCount = this.isEndless ? this.wave : this.map.rooms.filter((r) => r.cleared && !r.isStart).length;
+    const bossName = this.isEndless
+      ? (boss ? BOSSES[boss.spriteKey.replace("b_", "") as BossKind]?.name : undefined)
+      : (boss ? this.bossName() : undefined);
     const hud: HudState = {
       phase: this.phase,
       heroName: this.hero.name,
@@ -1501,17 +1633,19 @@ export class Engine {
       maxHp: this.phpMax,
       skills,
       roomsCleared: clearedCount,
-      totalRooms: totalRooms - 1, // exclude start from the count
-      bossFound: this.map.rooms.some((r) => r.isBoss && r.visited),
+      totalRooms: this.isEndless ? 0 : totalRooms - 1,
+      bossFound: this.isEndless ? (boss != null) : this.map.rooms.some((r) => r.isBoss && r.visited),
       enemiesLeft: this.enemies.length,
       dungeonName: this.dungeon.name,
-      minimap: this.buildMinimap(),
-      bossName: boss ? this.bossName() : undefined,
+      minimap: this.isEndless ? { rooms: [], minX: 0, minY: 0, gridW: 0, gridH: 0 } : this.buildMinimap(),
+      bossName,
       bossHp: boss ? Math.max(0, Math.round(boss.hp)) : undefined,
       bossMax: boss ? boss.maxHp : undefined,
       goldGained: this.goldGained,
       xpGained: this.xpGained,
       monstersKilled: this.monstersKilled,
+      isEndless: this.isEndless,
+      wave: this.isEndless ? this.wave : undefined,
     };
     this.cb.onHud(hud);
   }

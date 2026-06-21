@@ -77,10 +77,11 @@ export default function Town() {
   const handleInteract = useCallback((npc: NpcDef) => {
     const action: TownAction = npc.action;
     if (action === "dungeon") setPanel("dungeon");
+    else if (action === "endless" && save) router.push(`/raid?hero=${save.selectedHero}&dungeon=endless`);
     else if (action === "equipment") setPanel("equipment");
     else if (action === "heroes") setPanel("heroes");
     else setDialog({ name: npc.name, lines: npc.lines, idx: 0 });
-  }, []);
+  }, [save, router]);
 
   // mount town engine once save is ready
   const ready = save !== null;
