@@ -11,7 +11,7 @@ export interface BuildingLayout {
 export interface NpcLayout {
   id: string; name: string;
   x: number; y: number;
-  action: string;
+  action: "dungeon" | "equipment" | "heroes" | "talk" | "shop" | "endless" | "village2";
   facing: 1 | -1;
   lines: string[];
   asset?: string;
@@ -48,8 +48,10 @@ export function loadTownLayout(): TownLayout | null {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as TownLayout;
-  } catch { return null; }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.buildings)) return null;
+    return parsed as TownLayout;
+  } catch (e) { console.warn("Failed to load town layout", e); return null; }
 }
 
 export function exportTownLayout(layout: TownLayout): void {
@@ -67,14 +69,20 @@ export function importTownLayout(): Promise<TownLayout | null> {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".json";
+    input.oncancel = () => resolve(null);
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) { resolve(null); return; }
       const reader = new FileReader();
       reader.onload = () => {
         try {
-          resolve(JSON.parse(reader.result as string) as TownLayout);
-        } catch { resolve(null); }
+          const parsed = JSON.parse(reader.result as string);
+          if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.buildings)) {
+            resolve(null);
+            return;
+          }
+          resolve(parsed as TownLayout);
+        } catch (e) { console.warn("Failed to import town layout", e); resolve(null); }
       };
       reader.readAsText(file);
     };
