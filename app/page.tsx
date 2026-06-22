@@ -263,9 +263,9 @@ export default function Town() {
             </div>
           </Modal>
         )}
-        {editorMode && (
+        {editorMode && engineRef.current && (
           <EditorPanel
-            engine={engineRef.current!}
+            engine={engineRef.current}
             selection={editorSelection}
             onClose={() => setEditorMode(false)}
           />
@@ -360,6 +360,7 @@ function EditorPanel({
             <option value="dungeon">dungeon</option>
             <option value="endless">endless</option>
             <option value="shop">shop</option>
+            <option value="village2">village2</option>
           </select>
         </label>
         <label>Facing
