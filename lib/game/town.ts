@@ -5,6 +5,9 @@ import { generateCharacter, GenOptions } from "./pixelgen";
 import {
   preloadHeroSprites, drawHeroDir, facingFromVec, Facing,
 } from "./spriteLoader";
+import {
+  TownLayout, saveTownLayout, loadTownLayout, exportTownLayout, importTownLayout,
+} from "./editor-layout";
 
 // Viewport = the logical area the camera shows on screen (kept small so the
 // pixel art stays chunky). The world is much larger and the camera follows the
@@ -17,7 +20,7 @@ export const WORLD_H = 800;
 const PIXEL_SCALE = 3;
 
 // Which interaction an NPC triggers (handled by the React layer).
-export type TownAction = "dungeon" | "equipment" | "heroes" | "talk" | "shop" | "endless";
+export type TownAction = "dungeon" | "equipment" | "heroes" | "talk" | "shop" | "endless" | "village2";
 
 export interface NpcDef {
   id: string;
@@ -60,11 +63,16 @@ interface Building {
   image?: HTMLImageElement;
   label?: string;
   banner?: string;
+  portal?: boolean;
 }
 
 export interface TownCallbacks {
   onNearby: (npc: NpcDef | null) => void;
   onInteract: (npc: NpcDef) => void;
+}
+
+export interface EditorCallbacks {
+  onSelect: (kind: "building" | "npc" | null, index: number | null) => void;
 }
 
 const PLAYER_SIZE = 24;
@@ -111,6 +119,13 @@ export class TownEngine {
   private prevInteract = false;
 
   private cb: TownCallbacks;
+
+  // --- Editor state ---
+  private editorMode = false;
+  private editorSelected: { kind: "building" | "npc"; index: number } | null = null;
+  private editorDrag: { kind: "building" | "npc"; index: number; offX: number; offY: number } | null = null;
+  private editorMouseWorld = { x: 0, y: 0 };
+  private editorCallbacks: EditorCallbacks | null = null;
 
   constructor(canvas: HTMLCanvasElement, heroId: HeroId, cb: TownCallbacks) {
     this.canvas = canvas;
@@ -175,7 +190,215 @@ export class TownEngine {
     if (this.nearby) this.cb.onInteract(this.nearby);
   }
 
+  setEditorMode(on: boolean) {
+    this.editorMode = on;
+    if (!on) {
+      this.editorSelected = null;
+      this.editorDrag = null;
+    }
+  }
+
+  isEditorMode(): boolean {
+    return this.editorMode;
+  }
+
+  setEditorCallbacks(cb: EditorCallbacks) {
+    this.editorCallbacks = cb;
+  }
+
+  getSelectedBuilding(): Building | null {
+    if (this.editorSelected?.kind === "building") return this.buildings[this.editorSelected.index];
+    return null;
+  }
+
+  getSelectedNpc(): NpcDef | null {
+    if (this.editorSelected?.kind === "npc") return this.npcs[this.editorSelected.index];
+    return null;
+  }
+
+  updateSelectedBuilding(props: Partial<Building>) {
+    if (this.editorSelected?.kind === "building") {
+      Object.assign(this.buildings[this.editorSelected.index], props);
+      this.autoSaveLayout();
+    }
+  }
+
+  updateSelectedNpc(props: Partial<NpcDef>) {
+    if (this.editorSelected?.kind === "npc") {
+      Object.assign(this.npcs[this.editorSelected.index], props);
+      this.autoSaveLayout();
+    }
+  }
+
+  addBuilding(b: Building) {
+    this.buildings.push(b);
+    this.autoSaveLayout();
+  }
+
+  removeSelected() {
+    if (!this.editorSelected) return;
+    if (this.editorSelected.kind === "building") {
+      this.buildings.splice(this.editorSelected.index, 1);
+    } else {
+      this.npcs.splice(this.editorSelected.index, 1);
+    }
+    this.editorSelected = null;
+    this.editorCallbacks?.onSelect(null, null);
+    this.autoSaveLayout();
+  }
+
+  addNpc(n: NpcDef) {
+    this.npcs.push(n);
+    this.autoSaveLayout();
+  }
+
+  getLayout(): TownLayout {
+    return {
+      buildings: this.buildings.map((b) => ({
+        x: b.x, y: b.y, w: b.w, h: b.h,
+        color: b.color, roof: b.roof,
+        asset: b.asset, drawSize: b.drawSize,
+        label: b.label, banner: b.banner,
+        portal: b.portal, drawHeight: b.drawHeight,
+      })),
+      npcs: this.npcs.map((n) => ({
+        id: n.id, name: n.name, x: n.x, y: n.y,
+        action: n.action, facing: n.facing ?? 1,
+        lines: n.lines, asset: n.asset, drawSize: n.drawSize,
+      })),
+      roads: [],
+    };
+  }
+
+  loadLayout(layout: TownLayout) {
+    this.buildings = layout.buildings.map((b) => ({ ...b }));
+    this.npcs = layout.npcs.map((n) => {
+      const npc: NpcDef = {
+        id: n.id, name: n.name, gen: {},
+        x: n.x, y: n.y, action: n.action as TownAction,
+        facing: n.facing, lines: n.lines,
+        asset: n.asset, drawSize: n.drawSize,
+      };
+      if (n.asset) {
+        const img = new Image();
+        img.src = n.asset;
+        npc.image = img;
+        const stem = n.asset.replace(/_keyed\.png$/, "");
+        if (stem !== n.asset) {
+          const mk = (dir: string) => { const im = new Image(); im.src = `${stem}_${dir}_keyed.png`; return im; };
+          npc.walkImgs = { up: mk("walkingup"), down: mk("walkingdown"), left: mk("walkingleft") };
+        }
+      }
+      return npc;
+    });
+    this.autoSaveLayout();
+  }
+
+  doExportLayout() {
+    exportTownLayout(this.getLayout());
+  }
+
+  async doImportLayout() {
+    const layout = await importTownLayout();
+    if (layout) this.loadLayout(layout);
+  }
+
+  private autoSaveLayout() {
+    saveTownLayout(this.getLayout());
+  }
+
+  private hitTest(mx: number, my: number): { kind: "building" | "npc"; index: number } | null {
+    for (let i = this.npcs.length - 1; i >= 0; i--) {
+      const n = this.npcs[i];
+      const size = n.drawSize ?? 24;
+      if (mx >= n.x - size / 2 && mx <= n.x + size / 2 &&
+          my >= n.y - size / 2 && my <= n.y + size / 2) {
+        return { kind: "npc", index: i };
+      }
+    }
+    for (let i = this.buildings.length - 1; i >= 0; i--) {
+      const b = this.buildings[i];
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+        return { kind: "building", index: i };
+      }
+    }
+    return null;
+  }
+
+  private updateEditor(_dt: number) {
+    const rect = this.canvas.getBoundingClientRect();
+    this.editorMouseWorld.x = this.input.mouseX / (rect.width / this.viewW) + this.camX;
+    this.editorMouseWorld.y = this.input.mouseY / (rect.height / this.viewH) + this.camY;
+
+    const mx = this.editorMouseWorld.x;
+    const my = this.editorMouseWorld.y;
+
+    if (this.input.mouseDown && !this.prevInteract) {
+      const hit = this.hitTest(mx, my);
+      if (hit) {
+        this.editorSelected = hit;
+        this.editorCallbacks?.onSelect(hit.kind, hit.index);
+        if (hit.kind === "building") {
+          const b = this.buildings[hit.index];
+          this.editorDrag = { ...hit, offX: mx - b.x, offY: my - b.y };
+        } else {
+          const n = this.npcs[hit.index];
+          this.editorDrag = { ...hit, offX: mx - n.x, offY: my - n.y };
+        }
+      } else {
+        this.editorSelected = null;
+        this.editorCallbacks?.onSelect(null, null);
+        this.editorDrag = null;
+      }
+    }
+
+    if (this.input.mouseDown && this.editorDrag) {
+      const newX = Math.round(mx - this.editorDrag.offX);
+      const newY = Math.round(my - this.editorDrag.offY);
+      if (this.editorDrag.kind === "building") {
+        const b = this.buildings[this.editorDrag.index];
+        b.x = newX; b.y = newY;
+      } else {
+        const n = this.npcs[this.editorDrag.index];
+        n.x = newX; n.y = newY;
+      }
+    }
+
+    if (!this.input.mouseDown && this.editorDrag) {
+      this.autoSaveLayout();
+      this.editorDrag = null;
+    }
+
+    this.prevInteract = this.input.mouseDown;
+  }
+
   private buildLayout() {
+    const saved = loadTownLayout();
+    if (saved && saved.buildings.length > 0) {
+      this.buildings = saved.buildings.map((b) => ({ ...b }));
+      this.npcs = [];
+      for (const n of saved.npcs) {
+        const npc: NpcDef = {
+          id: n.id, name: n.name, gen: {},
+          x: n.x, y: n.y, action: n.action as TownAction,
+          facing: n.facing, lines: n.lines,
+          asset: n.asset, drawSize: n.drawSize,
+        };
+        if (n.asset) {
+          const img = new Image();
+          img.src = n.asset;
+          npc.image = img;
+          const stem = n.asset.replace(/_keyed\.png$/, "");
+          if (stem !== n.asset) {
+            const mk = (dir: string) => { const im = new Image(); im.src = `${stem}_${dir}_keyed.png`; return im; };
+            npc.walkImgs = { up: mk("walkingup"), down: mk("walkingdown"), left: mk("walkingleft") };
+          }
+        }
+        this.npcs.push(npc);
+      }
+      return;
+    }
+
     // Buildings (decorative + landmarks) — spread across the big world.
     this.buildings = [
       // Grand Castle (top center)
@@ -211,6 +434,12 @@ export class TownEngine {
         x: 980, y: 600, w: 170, h: 90, color: "#1a1818", roof: "#0f0f0f",
         asset: "/sprites/building/dungeon-cave-entrance.png", drawSize: 240,
         label: "RAID ENDLESS", banner: "gate",
+      },
+      // Portal to next village (far right)
+      {
+        x: 1180, y: 400, w: 80, h: 100, color: "#3a2a6a", roof: "#2a1a4a",
+        asset: "", drawSize: 160,
+        label: "PORTAL", portal: true,
       },
     ];
 
@@ -291,6 +520,24 @@ export class TownEngine {
         lines: [
           "His Majesty does not grant audience to just anyone.",
           "Prove your worth in the depths first.",
+        ],
+      },
+      {
+        id: "portal_keeper", name: "Portal Keeper",
+        gen: { headgear: "helmet", cloth: "#3a2a6a", trim: "#7a5aaa", hair: "#2a1a3a" },
+        x: 1180, y: 530, action: "village2", facing: -1,
+        lines: [
+          "This portal leads to the next village.",
+          "Are you ready to explore new lands?",
+        ],
+      },
+      {
+        id: "west_guide", name: "Road Guide",
+        gen: { headgear: "hat", cloth: "#5a4a2a", trim: "#8a7a4a", hair: "#4a3018" },
+        x: 100, y: 490, action: "village2", facing: 1,
+        lines: [
+          "This road leads west to the next village.",
+          "The journey is long but the rewards are great!",
         ],
       },
     ];
@@ -423,6 +670,10 @@ export class TownEngine {
   };
 
   private update(dt: number) {
+    if (this.editorMode) {
+      this.updateEditor(dt);
+      return;
+    }
     let mx = 0, my = 0;
     if (this.input.pressed("a", "arrowleft")) mx -= 1;
     if (this.input.pressed("d", "arrowright")) mx += 1;
@@ -564,11 +815,17 @@ export class TownEngine {
         ctx.fillRect(120, 340, 1040, 230);
         // castle courtyard: brick area in front of the top-center castle
         ctx.fillRect(460, 200, 360, 140);
+        // road to portal (right side)
+        ctx.fillRect(1100, 340, 180, 230);
+        // road to left exit
+        ctx.fillRect(0, 400, 120, 120);
       }
     } else {
       ctx.fillStyle = "#9a8f7a";
       ctx.fillRect(120, 340, 1040, 230);
       ctx.fillRect(460, 200, 360, 140);
+      ctx.fillRect(1100, 340, 180, 230);
+      ctx.fillRect(0, 400, 120, 120);
     }
 
     // buildings + entities interleaved by Y for depth sorting
@@ -583,6 +840,25 @@ export class TownEngine {
     draws.push({ y: this.py, fn: () => this.drawPlayer() });
     draws.sort((a, b) => a.y - b.y);
     for (const d of draws) d.fn();
+
+    if (this.editorMode) {
+      if (this.editorSelected?.kind === "building") {
+        const b = this.buildings[this.editorSelected.index];
+        ctx.strokeStyle = "#ffd24a";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+        ctx.setLineDash([]);
+      } else if (this.editorSelected?.kind === "npc") {
+        const n = this.npcs[this.editorSelected.index];
+        const size = n.drawSize ?? 24;
+        ctx.strokeStyle = "#ffd24a";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(n.x - size / 2 - 2, n.y - size / 2 - 2, size + 4, size + 4);
+        ctx.setLineDash([]);
+      }
+    }
 
     // interaction prompt above nearby NPC (still world space)
     if (this.nearby) {
@@ -605,10 +881,91 @@ export class TownEngine {
       ctx.textAlign = "left";
     }
 
+    // floating arrow sign near left road exit
+    if (this.px < 100 && this.py > 380 && this.py < 540) {
+      const t = performance.now() / 1000;
+      const bounce = Math.sin(t * 3) * 3;
+      const ax = 55;
+      const ay = 430 + bounce;
+      // arrow pointing left
+      ctx.save();
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "#ffd24a";
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax + 14, ay - 8);
+      ctx.lineTo(ax + 14, ay - 3);
+      ctx.lineTo(ax + 28, ay - 3);
+      ctx.lineTo(ax + 28, ay + 3);
+      ctx.lineTo(ax + 14, ay + 3);
+      ctx.lineTo(ax + 14, ay + 8);
+      ctx.closePath();
+      ctx.fill();
+      // text
+      ctx.globalAlpha = 0.9;
+      ctx.font = "bold 8px monospace";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ffd24a";
+      ctx.fillText("WEST VILLAGE", ax + 14, ay + 16);
+      ctx.textAlign = "left";
+      ctx.restore();
+    }
+
+    ctx.restore();
+
+    // minimap (screen-space, bottom-right corner)
+    this.drawMinimap();
+  }
+
+  private drawMinimap() {
+    const ctx = this.ctx;
+    const mapW = 120;
+    const mapH = Math.round(mapW * (WORLD_H / WORLD_W));
+    const pad = 6;
+    const mx = this.viewW - mapW - pad;
+    const my = this.viewH - mapH - pad;
+    const sx = mapW / WORLD_W;
+    const sy = mapH / WORLD_H;
+
+    // background
+    ctx.save();
+    ctx.globalAlpha = 0.75;
+    ctx.fillStyle = "#0a0a12";
+    ctx.fillRect(mx - 2, my - 2, mapW + 4, mapH + 4);
+    ctx.globalAlpha = 1;
+
+    // buildings
+    for (const b of this.buildings) {
+      ctx.fillStyle = "#4a4f5a";
+      ctx.fillRect(mx + b.x * sx, my + b.y * sy, Math.max(2, b.w * sx), Math.max(2, b.h * sy));
+    }
+
+    // road/plaza
+    ctx.fillStyle = "#5a5548";
+    ctx.fillRect(mx + 120 * sx, my + 340 * sy, 1040 * sx, 230 * sy);
+    ctx.fillRect(mx + 460 * sx, my + 200 * sy, 360 * sx, 140 * sy);
+
+    // key NPCs (non-wanderers only)
+    for (const n of this.npcs) {
+      if (n.wander) continue;
+      ctx.fillStyle = "#ffd24a";
+      ctx.fillRect(mx + n.x * sx - 1, my + n.y * sy - 1, 3, 3);
+    }
+
+    // player
+    ctx.fillStyle = "#5fff8f";
+    ctx.fillRect(mx + this.px * sx - 2, my + this.py * sy - 2, 4, 4);
+
+    // border
+    ctx.strokeStyle = "#3a3a4a";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mx - 2, my - 2, mapW + 4, mapH + 4);
+
     ctx.restore();
   }
 
   private drawBuilding(b: Building) {
+    if (b.portal) { this.drawPortal(b); return; }
     const ctx = this.ctx;
     if (b.image?.complete && b.image.naturalWidth > 0) {
       // Manor assets have transparent padding. Align the visible foundation
@@ -680,6 +1037,78 @@ export class TownEngine {
       ctx.fillText(b.label, b.x + b.w / 2, labelY);
       ctx.textAlign = "left";
     }
+  }
+
+  private drawPortal(b: Building) {
+    const ctx = this.ctx;
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    const t = performance.now() / 1000;
+
+    // elliptical stone ring
+    ctx.save();
+    ctx.fillStyle = "#2a1a3a";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 40, 50, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#0a0515";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 32, 42, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // portal glow (pulsing ellipse)
+    const pulse = 0.6 + Math.sin(t * 2.5) * 0.2;
+    ctx.save();
+    ctx.globalAlpha = pulse;
+
+    // outer glow
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+    grad.addColorStop(0, "#9a5aff");
+    grad.addColorStop(0.4, "#5a3aaa");
+    grad.addColorStop(1, "rgba(60,20,120,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 30, 38, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // inner bright core
+    const grad2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, 20);
+    grad2.addColorStop(0, "#d4aaff");
+    grad2.addColorStop(0.6, "#7a3acc");
+    grad2.addColorStop(1, "rgba(80,30,160,0)");
+    ctx.fillStyle = grad2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 14, 20, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // swirling particles
+    ctx.save();
+    for (let i = 0; i < 8; i++) {
+      const a = t * 1.8 + (i / 8) * Math.PI * 2;
+      const r = 14 + Math.sin(t * 3 + i) * 6;
+      const px = cx + Math.cos(a) * r;
+      const py = cy + Math.sin(a) * r * 1.2;
+      const alpha = 0.5 + Math.sin(t * 4 + i * 2) * 0.3;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = i % 2 === 0 ? "#c080ff" : "#60a0ff";
+      ctx.beginPath();
+      ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // flickering light on ground
+    ctx.save();
+    ctx.globalAlpha = 0.15 + Math.sin(t * 3) * 0.08;
+    ctx.fillStyle = "#7a3acc";
+    ctx.beginPath();
+    ctx.ellipse(cx, b.y + b.h + 4, 30, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    this.drawBuildingLabel(b);
   }
 
   private drawShadow(x: number, y: number, w: number) {
