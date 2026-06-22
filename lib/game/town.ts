@@ -237,12 +237,13 @@ export class TownEngine {
 
   removeSelected() {
     if (!this.editorSelected) return;
-    if (this.editorSelected.kind === "building") {
-      this.buildings.splice(this.editorSelected.index, 1);
-    } else {
-      this.npcs.splice(this.editorSelected.index, 1);
-    }
+    const { kind, index } = this.editorSelected;
     this.editorSelected = null;
+    if (kind === "building") {
+      this.buildings.splice(index, 1);
+    } else {
+      this.npcs.splice(index, 1);
+    }
     this.editorCallbacks?.onSelect(null, null);
     this.autoSaveLayout();
   }
@@ -265,6 +266,10 @@ export class TownEngine {
         id: n.id, name: n.name, x: n.x, y: n.y,
         action: n.action, facing: n.facing ?? 1,
         lines: n.lines, asset: n.asset, drawSize: n.drawSize,
+        headgear: n.gen.headgear as string | undefined,
+        cloth: n.gen.cloth,
+        trim: n.gen.trim,
+        hair: n.gen.hair,
       })),
       roads: [],
     };
@@ -272,26 +277,7 @@ export class TownEngine {
 
   loadLayout(layout: TownLayout) {
     this.buildings = layout.buildings.map((b) => ({ ...b }));
-    this.npcs = layout.npcs.map((n) => {
-      const npc: NpcDef = {
-        id: n.id, name: n.name, gen: {},
-        x: n.x, y: n.y, action: n.action as TownAction,
-        facing: n.facing, lines: n.lines,
-        asset: n.asset, drawSize: n.drawSize,
-      };
-      if (n.asset) {
-        const img = new Image();
-        img.src = n.asset;
-        npc.image = img;
-        const stem = n.asset.replace(/_keyed\.png$/, "");
-        if (stem !== n.asset) {
-          const mk = (dir: string) => { const im = new Image(); im.src = `${stem}_${dir}_keyed.png`; return im; };
-          npc.walkImgs = { up: mk("walkingup"), down: mk("walkingdown"), left: mk("walkingleft") };
-        }
-      }
-      return npc;
-    });
-    this.autoSaveLayout();
+    this.npcs = layout.npcs.map((n) => this.hydrateNpc(n));
   }
 
   doExportLayout() {
@@ -305,6 +291,27 @@ export class TownEngine {
 
   private autoSaveLayout() {
     saveTownLayout(this.getLayout());
+  }
+
+  private hydrateNpc(n: any): NpcDef {
+    const npc: NpcDef = {
+      id: n.id, name: n.name,
+      gen: { headgear: n.headgear as any, cloth: n.cloth, trim: n.trim, hair: n.hair },
+      x: n.x, y: n.y, action: n.action as TownAction,
+      facing: n.facing, lines: n.lines,
+      asset: n.asset, drawSize: n.drawSize,
+    };
+    if (n.asset) {
+      const img = new Image();
+      img.src = n.asset;
+      npc.image = img;
+      const stem = n.asset.replace(/_keyed\.png$/, "");
+      if (stem !== n.asset) {
+        const mk = (dir: string) => { const im = new Image(); im.src = `${stem}_${dir}_keyed.png`; return im; };
+        npc.walkImgs = { up: mk("walkingup"), down: mk("walkingdown"), left: mk("walkingleft") };
+      }
+    }
+    return npc;
   }
 
   private hitTest(mx: number, my: number): { kind: "building" | "npc"; index: number } | null {
@@ -376,26 +383,7 @@ export class TownEngine {
     const saved = loadTownLayout();
     if (saved && saved.buildings.length > 0) {
       this.buildings = saved.buildings.map((b) => ({ ...b }));
-      this.npcs = [];
-      for (const n of saved.npcs) {
-        const npc: NpcDef = {
-          id: n.id, name: n.name, gen: {},
-          x: n.x, y: n.y, action: n.action as TownAction,
-          facing: n.facing, lines: n.lines,
-          asset: n.asset, drawSize: n.drawSize,
-        };
-        if (n.asset) {
-          const img = new Image();
-          img.src = n.asset;
-          npc.image = img;
-          const stem = n.asset.replace(/_keyed\.png$/, "");
-          if (stem !== n.asset) {
-            const mk = (dir: string) => { const im = new Image(); im.src = `${stem}_${dir}_keyed.png`; return im; };
-            npc.walkImgs = { up: mk("walkingup"), down: mk("walkingdown"), left: mk("walkingleft") };
-          }
-        }
-        this.npcs.push(npc);
-      }
+      this.npcs = saved.npcs.map((n) => this.hydrateNpc(n));
       return;
     }
 
