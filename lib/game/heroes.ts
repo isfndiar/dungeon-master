@@ -93,7 +93,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
   tank: {
     id: "tank",
     name: "Tank",
-    desc: "Massive HP bruiser. Slams, shields, and rages.",
+    desc: "Massive HP bruiser. Lower HP = more damage & enemy miss chance.",
     attackKind: "melee",
     baseHp: 200,
     baseDmg: 12,

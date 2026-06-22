@@ -643,7 +643,12 @@ export class Engine {
   }
 
   private curDmg(): number {
-    return this.pdmg * (this.dmgBuff > 0 ? this.dmgBuffMult : 1);
+    let dmg = this.pdmg * (this.dmgBuff > 0 ? this.dmgBuffMult : 1);
+    if (this.heroId === "tank") {
+      const missingRatio = 1 - this.php / this.phpMax;
+      dmg *= 1 + missingRatio * 0.8;
+    }
+    return dmg;
   }
 
   private doBasicAttack() {
@@ -791,17 +796,17 @@ export class Engine {
       }
       // ---- Tank ----
       case "groundslam": {
+        const slamRadius = 80;
         for (const e of this.enemies) {
           const d = dist(e.x, e.y, this.px, this.py);
-          if (d < 56 + e.size * 0.4) {
+          if (d < slamRadius + e.size * 0.4) {
             this.damageEnemy(e, dmg * 1.3);
-            // knockback
             const a = Math.atan2(e.y - this.py, e.x - this.px);
-            e.x = clamp(e.x + Math.cos(a) * 30, FIELD.x + 6, FIELD.x + FIELD.w - 6);
-            e.y = clamp(e.y + Math.sin(a) * 30, FIELD.y + 6, FIELD.y + FIELD.h - 6);
+            e.x = clamp(e.x + Math.cos(a) * 45, FIELD.x + 6, FIELD.x + FIELD.w - 6);
+            e.y = clamp(e.y + Math.sin(a) * 45, FIELD.y + 6, FIELD.y + FIELD.h - 6);
           }
         }
-        this.spawnRing(this.px, this.py, "#8a8f99", 56);
+        this.spawnRing(this.px, this.py, "#8a8f99", slamRadius);
         break;
       }
       case "taunt": {
@@ -1070,6 +1075,14 @@ export class Engine {
 
   private damagePlayer(dmg: number) {
     if (this.invuln > 0) return;
+    if (this.heroId === "tank") {
+      const missingRatio = 1 - this.php / this.phpMax;
+      if (Math.random() < missingRatio * 0.5) {
+        this.float("MISS", this.px, this.py - 16, "#7ab8ff");
+        this.invuln = 0.2;
+        return;
+      }
+    }
     if (this.shield > 0) {
       this.float("BLOCK", this.px, this.py - 16, "#c0c8d8");
       this.invuln = 0.3;
@@ -1437,6 +1450,18 @@ export class Engine {
     ctx.save();
     ctx.translate(cx, cy);
 
+    // tank: only the bash square, no arc trail
+    if (this.hero.id === "tank") {
+      const tx = Math.cos(ang) * (reach - 4);
+      const ty = Math.sin(ang) * (reach - 4);
+      const s = 6 * (0.5 + t * 0.5);
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = col;
+      ctx.fillRect(tx - s / 2, ty - s / 2, s, s);
+      ctx.restore();
+      return;
+    }
+
     // arc trail (fading wedge behind the blade)
     ctx.globalAlpha = 0.35 * t + 0.15;
     ctx.fillStyle = col;
@@ -1455,16 +1480,6 @@ export class Engine {
     ctx.moveTo(Math.cos(cur) * 4, Math.sin(cur) * 4);
     ctx.lineTo(Math.cos(cur) * reach, Math.sin(cur) * reach);
     ctx.stroke();
-
-    // tank gets a chunky bash square at the tip instead of thin blade
-    if (this.hero.id === "tank") {
-      ctx.globalAlpha = 0.9;
-      ctx.fillStyle = col;
-      const tx = Math.cos(ang) * (reach - 4);
-      const ty = Math.sin(ang) * (reach - 4);
-      const s = 6 * (0.5 + t * 0.5);
-      ctx.fillRect(tx - s / 2, ty - s / 2, s, s);
-    }
     ctx.restore();
   }
 

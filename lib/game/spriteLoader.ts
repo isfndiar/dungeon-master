@@ -47,6 +47,12 @@ const elfArcherImages: {
   attack?: HTMLImageElement;
   loaded: boolean;
 } = { loaded: false };
+const hammerGuardianImages: {
+  idle?: HTMLImageElement;
+  walk?: HTMLImageElement;
+  attack?: HTMLImageElement;
+  loaded: boolean;
+} = { loaded: false };
 let arrowStripLoaded = false;
 let arrowStripImage: HTMLImageElement | undefined;
 let preloadStarted = false;
@@ -134,6 +140,20 @@ export function preloadHeroSprites() {
     elfArcherImages[key] = img;
   }
 
+  const hammerGuardianSources: Record<"idle" | "walk" | "attack", string> = {
+    idle: "/sprites/hammer_guardian/idle-4f/final/idle-4f-4dir-spritesheet.png",
+    walk: "/sprites/hammer_guardian/walk-4f/final/walk-4f-4dir-spritesheet.png",
+    attack: "/sprites/hammer_guardian/attack-4f/final/attack-4f-4dir-spritesheet.png",
+  };
+  let hammerGuardianCount = 0;
+  for (const key of Object.keys(hammerGuardianSources) as ("idle" | "walk" | "attack")[]) {
+    const img = loadImg(hammerGuardianSources[key]);
+    const done = () => { if (++hammerGuardianCount >= 3) hammerGuardianImages.loaded = true; };
+    img.onload = done;
+    img.onerror = done;
+    hammerGuardianImages[key] = img;
+  }
+
   arrowStripImage = loadImg("/sprites/elf_archer/arrow-projectile/arrow-projectile-3dir-strip.png");
   arrowStripImage.onload = arrowStripImage.onerror = () => { arrowStripLoaded = true; };
 }
@@ -174,6 +194,9 @@ export function drawHeroDir(
     ctx, facing, x, y, size, walkPhase, moving, attackProgress,
   )) return true;
   if (id === "archer" && drawElfArcher(
+    ctx, facing, x, y, size, walkPhase, moving, attackProgress,
+  )) return true;
+  if (id === "tank" && drawHammerGuardian(
     ctx, facing, x, y, size, walkPhase, moving, attackProgress,
   )) return true;
 
@@ -383,6 +406,42 @@ function drawElfArcher(
   } else {
     ctx.drawImage(sheet, frame * CELL, row * CELL, CELL, CELL, drawX, drawY, drawSize, drawSize);
   }
+  ctx.restore();
+  return true;
+}
+
+function drawHammerGuardian(
+  ctx: CanvasRenderingContext2D,
+  facing: Facing,
+  x: number,
+  y: number,
+  size: number,
+  animTime: number,
+  moving: boolean,
+  attackProgress: number,
+): boolean {
+  if (!hammerGuardianImages.loaded) return false;
+  const img = attackProgress > 0
+    ? hammerGuardianImages.attack
+    : moving ? hammerGuardianImages.walk : hammerGuardianImages.idle;
+  if (!img || !img.complete || img.naturalWidth === 0) return false;
+
+  const frame = attackProgress > 0
+    ? Math.min(3, Math.floor((1 - attackProgress) * 4))
+    : Math.floor(animTime * (moving ? 10 : 5)) % 4;
+  const row = MAGE_DIR_ROW[facing];
+  const drawSize = size * 2 * 1.25;
+  const drawX = x - (drawSize - size) / 2;
+  const drawY = y - (drawSize - size) - (size * 2) * 0.25 * 0.12;
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(
+    img,
+    frame * MAGE_CELL, row * MAGE_CELL, MAGE_CELL, MAGE_CELL,
+    drawX, drawY, drawSize, drawSize,
+  );
   ctx.restore();
   return true;
 }
