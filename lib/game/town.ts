@@ -5,9 +5,6 @@ import { generateCharacter, GenOptions } from "./pixelgen";
 import {
   preloadHeroSprites, drawHeroDir, facingFromVec, Facing,
 } from "./spriteLoader";
-import {
-  TownLayout, saveTownLayout, loadTownLayout, exportTownLayout, importTownLayout,
-} from "./editor-layout";
 
 // Viewport = the logical area the camera shows on screen (kept small so the
 // pixel art stays chunky). The world is much larger and the camera follows the
@@ -71,10 +68,6 @@ export interface TownCallbacks {
   onInteract: (npc: NpcDef) => void;
 }
 
-export interface EditorCallbacks {
-  onSelect: (kind: "building" | "npc" | null, index: number | null) => void;
-}
-
 const PLAYER_SIZE = 24;
 const INTERACT_DIST = 30;
 // Villager walk strips are a single row of 5 frames laid out horizontally.
@@ -119,13 +112,6 @@ export class TownEngine {
   private prevInteract = false;
 
   private cb: TownCallbacks;
-
-  // --- Editor state ---
-  private editorMode = false;
-  private editorSelected: { kind: "building" | "npc"; index: number } | null = null;
-  private editorDrag: { kind: "building" | "npc"; index: number; offX: number; offY: number } | null = null;
-  private editorMouseWorld = { x: 0, y: 0 };
-  private editorCallbacks: EditorCallbacks | null = null;
 
   constructor(canvas: HTMLCanvasElement, heroId: HeroId, cb: TownCallbacks) {
     this.canvas = canvas;
@@ -190,203 +176,7 @@ export class TownEngine {
     if (this.nearby) this.cb.onInteract(this.nearby);
   }
 
-  setEditorMode(on: boolean) {
-    this.editorMode = on;
-    if (!on) {
-      this.editorSelected = null;
-      this.editorDrag = null;
-    }
-  }
-
-  isEditorMode(): boolean {
-    return this.editorMode;
-  }
-
-  setEditorCallbacks(cb: EditorCallbacks) {
-    this.editorCallbacks = cb;
-  }
-
-  getSelectedBuilding(): Building | null {
-    if (this.editorSelected?.kind === "building") return this.buildings[this.editorSelected.index];
-    return null;
-  }
-
-  getSelectedNpc(): NpcDef | null {
-    if (this.editorSelected?.kind === "npc") return this.npcs[this.editorSelected.index];
-    return null;
-  }
-
-  updateSelectedBuilding(props: Partial<Building>) {
-    if (this.editorSelected?.kind === "building") {
-      Object.assign(this.buildings[this.editorSelected.index], props);
-      this.autoSaveLayout();
-    }
-  }
-
-  updateSelectedNpc(props: Partial<NpcDef>) {
-    if (this.editorSelected?.kind === "npc") {
-      Object.assign(this.npcs[this.editorSelected.index], props);
-      this.autoSaveLayout();
-    }
-  }
-
-  addBuilding(b: Building) {
-    this.buildings.push(b);
-    this.autoSaveLayout();
-  }
-
-  removeSelected() {
-    if (!this.editorSelected) return;
-    const { kind, index } = this.editorSelected;
-    this.editorSelected = null;
-    if (kind === "building") {
-      this.buildings.splice(index, 1);
-    } else {
-      this.npcs.splice(index, 1);
-    }
-    this.editorCallbacks?.onSelect(null, null);
-    this.autoSaveLayout();
-  }
-
-  addNpc(n: NpcDef) {
-    this.npcs.push(n);
-    this.autoSaveLayout();
-  }
-
-  getLayout(): TownLayout {
-    return {
-      buildings: this.buildings.map((b) => ({
-        x: b.x, y: b.y, w: b.w, h: b.h,
-        color: b.color, roof: b.roof,
-        asset: b.asset, drawSize: b.drawSize,
-        label: b.label, banner: b.banner,
-        portal: b.portal, drawHeight: b.drawHeight,
-      })),
-      npcs: this.npcs.map((n) => ({
-        id: n.id, name: n.name, x: n.x, y: n.y,
-        action: n.action, facing: n.facing ?? 1,
-        lines: n.lines, asset: n.asset, drawSize: n.drawSize,
-        headgear: n.gen.headgear as string | undefined,
-        cloth: n.gen.cloth,
-        trim: n.gen.trim,
-        hair: n.gen.hair,
-      })),
-      roads: [],
-    };
-  }
-
-  loadLayout(layout: TownLayout) {
-    this.buildings = layout.buildings.map((b) => ({ ...b }));
-    this.npcs = layout.npcs.map((n) => this.hydrateNpc(n));
-  }
-
-  doExportLayout() {
-    exportTownLayout(this.getLayout());
-  }
-
-  async doImportLayout() {
-    const layout = await importTownLayout();
-    if (layout) this.loadLayout(layout);
-  }
-
-  private autoSaveLayout() {
-    saveTownLayout(this.getLayout());
-  }
-
-  private hydrateNpc(n: any): NpcDef {
-    const npc: NpcDef = {
-      id: n.id, name: n.name,
-      gen: { headgear: n.headgear as any, cloth: n.cloth, trim: n.trim, hair: n.hair },
-      x: n.x, y: n.y, action: n.action as TownAction,
-      facing: n.facing, lines: n.lines,
-      asset: n.asset, drawSize: n.drawSize,
-    };
-    if (n.asset) {
-      const img = new Image();
-      img.src = n.asset;
-      npc.image = img;
-      const stem = n.asset.replace(/_keyed\.png$/, "");
-      if (stem !== n.asset) {
-        const mk = (dir: string) => { const im = new Image(); im.src = `${stem}_${dir}_keyed.png`; return im; };
-        npc.walkImgs = { up: mk("walkingup"), down: mk("walkingdown"), left: mk("walkingleft") };
-      }
-    }
-    return npc;
-  }
-
-  private hitTest(mx: number, my: number): { kind: "building" | "npc"; index: number } | null {
-    for (let i = this.npcs.length - 1; i >= 0; i--) {
-      const n = this.npcs[i];
-      const size = n.drawSize ?? 24;
-      if (mx >= n.x - size / 2 && mx <= n.x + size / 2 &&
-          my >= n.y - size / 2 && my <= n.y + size / 2) {
-        return { kind: "npc", index: i };
-      }
-    }
-    for (let i = this.buildings.length - 1; i >= 0; i--) {
-      const b = this.buildings[i];
-      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-        return { kind: "building", index: i };
-      }
-    }
-    return null;
-  }
-
-  private updateEditor(_dt: number) {
-    const rect = this.canvas.getBoundingClientRect();
-    this.editorMouseWorld.x = this.input.mouseX / (rect.width / this.viewW) + this.camX;
-    this.editorMouseWorld.y = this.input.mouseY / (rect.height / this.viewH) + this.camY;
-
-    const mx = this.editorMouseWorld.x;
-    const my = this.editorMouseWorld.y;
-
-    if (this.input.mouseDown && !this.prevInteract) {
-      const hit = this.hitTest(mx, my);
-      if (hit) {
-        this.editorSelected = hit;
-        this.editorCallbacks?.onSelect(hit.kind, hit.index);
-        if (hit.kind === "building") {
-          const b = this.buildings[hit.index];
-          this.editorDrag = { ...hit, offX: mx - b.x, offY: my - b.y };
-        } else {
-          const n = this.npcs[hit.index];
-          this.editorDrag = { ...hit, offX: mx - n.x, offY: my - n.y };
-        }
-      } else {
-        this.editorSelected = null;
-        this.editorCallbacks?.onSelect(null, null);
-        this.editorDrag = null;
-      }
-    }
-
-    if (this.input.mouseDown && this.editorDrag) {
-      const newX = Math.round(mx - this.editorDrag.offX);
-      const newY = Math.round(my - this.editorDrag.offY);
-      if (this.editorDrag.kind === "building") {
-        const b = this.buildings[this.editorDrag.index];
-        b.x = newX; b.y = newY;
-      } else {
-        const n = this.npcs[this.editorDrag.index];
-        n.x = newX; n.y = newY;
-      }
-    }
-
-    if (!this.input.mouseDown && this.editorDrag) {
-      this.autoSaveLayout();
-      this.editorDrag = null;
-    }
-
-    this.prevInteract = this.input.mouseDown;
-  }
-
   private buildLayout() {
-    const saved = loadTownLayout();
-    if (saved && saved.buildings.length > 0) {
-      this.buildings = saved.buildings.map((b) => ({ ...b }));
-      this.npcs = saved.npcs.map((n) => this.hydrateNpc(n));
-      return;
-    }
-
     // Buildings (decorative + landmarks) — spread across the big world.
     this.buildings = [
       // Grand Castle (top center)
@@ -658,10 +448,6 @@ export class TownEngine {
   };
 
   private update(dt: number) {
-    if (this.editorMode) {
-      this.updateEditor(dt);
-      return;
-    }
     let mx = 0, my = 0;
     if (this.input.pressed("a", "arrowleft")) mx -= 1;
     if (this.input.pressed("d", "arrowright")) mx += 1;
@@ -828,25 +614,6 @@ export class TownEngine {
     draws.push({ y: this.py, fn: () => this.drawPlayer() });
     draws.sort((a, b) => a.y - b.y);
     for (const d of draws) d.fn();
-
-    if (this.editorMode) {
-      if (this.editorSelected?.kind === "building") {
-        const b = this.buildings[this.editorSelected.index];
-        ctx.strokeStyle = "#ffd24a";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
-        ctx.strokeRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
-        ctx.setLineDash([]);
-      } else if (this.editorSelected?.kind === "npc") {
-        const n = this.npcs[this.editorSelected.index];
-        const size = n.drawSize ?? 24;
-        ctx.strokeStyle = "#ffd24a";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([4, 4]);
-        ctx.strokeRect(n.x - size / 2 - 2, n.y - size / 2 - 2, size + 4, size + 4);
-        ctx.setLineDash([]);
-      }
-    }
 
     // interaction prompt above nearby NPC (still world space)
     if (this.nearby) {

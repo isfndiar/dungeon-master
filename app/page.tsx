@@ -59,8 +59,6 @@ export default function Town() {
   const [dialog, setDialog] = useState<{ name: string; lines: string[]; idx: number } | null>(null);
   const [nearbyName, setNearbyName] = useState<string | null>(null);
   const [invFilter, setInvFilter] = useState<EquipSlot | "all">("all");
-  const [editorMode, setEditorMode] = useState(false);
-  const [editorSelection, setEditorSelection] = useState<{ kind: "building" | "npc"; index: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<TownEngine | null>(null);
@@ -111,13 +109,6 @@ export default function Town() {
     engineRef.current = engine;
     engine.start();
 
-    engine.setEditorCallbacks({
-      onSelect: (kind, index) => {
-        if (kind && index !== null) setEditorSelection({ kind, index });
-        else setEditorSelection(null);
-      },
-    });
-
     const ro = new ResizeObserver(() => engine.resize());
     ro.observe(canvas);
     const onWinResize = () => engine.resize();
@@ -139,10 +130,6 @@ export default function Town() {
   useEffect(() => {
     engineRef.current?.setPaused(panel !== "none" || dialog !== null);
   }, [panel, dialog]);
-
-  useEffect(() => {
-    engineRef.current?.setEditorMode(editorMode);
-  }, [editorMode]);
 
   // keyboard shortcut: C to open character select (only when canvas not focused)
   useEffect(() => {
@@ -177,15 +164,6 @@ export default function Town() {
             <HeroPreview id={hero} size={20} />
             <span>{HEROES[hero].name} Lv{save.heroes[hero].level}</span>
           </div>
-          {process.env.NODE_ENV === "development" && (
-            <button
-              className={"town-nav-btn" + (editorMode ? " active" : "")}
-              style={{ flex: "none", padding: "6px 12px" }}
-              onClick={() => setEditorMode(!editorMode)}
-            >
-              {editorMode ? "EXIT EDIT" : "EDITOR"}
-            </button>
-          )}
           <button className="tiny-btn" onClick={doReset}>RESET</button>
         </div>
       </div>
@@ -263,124 +241,13 @@ export default function Town() {
             </div>
           </Modal>
         )}
-        {editorMode && engineRef.current && (
-          <EditorPanel
-            engine={engineRef.current}
-            selection={editorSelection}
-            onClose={() => setEditorMode(false)}
-          />
-        )}
       </div>
 
       <div className="town-hint">
         WASD / Arrows: walk • E or click: interact • C: Character
-        {editorMode && <span className="near"> — EDITOR MODE: click to select, drag to move</span>}
-        {!editorMode && nearbyName && <span className="near"> — near {nearbyName}</span>}
+        {nearbyName && <span className="near"> — near {nearbyName}</span>}
       </div>
     </main>
-  );
-}
-
-// ---------------- Editor Panel ----------------
-function EditorPanel({
-  engine, selection, onClose,
-}: {
-  engine: TownEngine;
-  selection: { kind: "building" | "npc"; index: number } | null;
-  onClose: () => void;
-}) {
-  const [refresh, setRefresh] = useState(0);
-
-  if (!selection) {
-    return (
-      <div className="editor-panel">
-        <div className="editor-panel-header">
-          <span>Town Editor</span>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="editor-panel-body">
-          <div className="editor-hint">Click a building or NPC to select it.</div>
-          <div className="editor-actions">
-            <button className="editor-btn" onClick={() => {
-              engine.addBuilding({
-                x: 400, y: 400, w: 120, h: 80,
-                color: "#6a6a6a", roof: "#4a4a4a",
-                asset: "", drawSize: 180, label: "NEW",
-              });
-              setRefresh((r) => r + 1);
-            }}>+ Add Building</button>
-            <button className="editor-btn" onClick={() => engine.doExportLayout()}>Export JSON</button>
-            <button className="editor-btn" onClick={async () => { await engine.doImportLayout(); setRefresh((r) => r + 1); }}>Import JSON</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (selection.kind === "building") {
-    const b = engine.getSelectedBuilding();
-    if (!b) return null;
-    return (
-      <div className="editor-panel">
-        <div className="editor-panel-header">
-          <span>Building</span>
-          <button className="modal-close" onClick={onClose}>✕</button>
-        </div>
-        <div className="editor-panel-body">
-          <label>X<input type="number" value={b.x} onChange={(e) => { b.x = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-          <label>Y<input type="number" value={b.y} onChange={(e) => { b.y = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-          <label>W<input type="number" value={b.w} onChange={(e) => { b.w = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-          <label>H<input type="number" value={b.h} onChange={(e) => { b.h = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-          <label>Label<input type="text" value={b.label ?? ""} onChange={(e) => { b.label = e.target.value; setRefresh((r) => r + 1); }} /></label>
-          <label>Asset<input type="text" value={b.asset} onChange={(e) => { b.asset = e.target.value; setRefresh((r) => r + 1); }} /></label>
-          <label>Draw Size<input type="number" value={b.drawSize} onChange={(e) => { b.drawSize = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-          <button className="editor-btn danger" onClick={() => { engine.removeSelected(); setRefresh((r) => r + 1); }}>Delete</button>
-        </div>
-      </div>
-    );
-  }
-
-  const n = engine.getSelectedNpc();
-  if (!n) return null;
-  return (
-    <div className="editor-panel">
-      <div className="editor-panel-header">
-        <span>NPC: {n.name}</span>
-        <button className="modal-close" onClick={onClose}>✕</button>
-      </div>
-      <div className="editor-panel-body">
-        <label>Name<input type="text" value={n.name} onChange={(e) => { n.name = e.target.value; setRefresh((r) => r + 1); }} /></label>
-        <label>X<input type="number" value={n.x} onChange={(e) => { n.x = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-        <label>Y<input type="number" value={n.y} onChange={(e) => { n.y = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-        <label>Action
-          <select value={n.action} onChange={(e) => { n.action = e.target.value as any; setRefresh((r) => r + 1); }}>
-            <option value="talk">talk</option>
-            <option value="heroes">heroes</option>
-            <option value="equipment">equipment</option>
-            <option value="dungeon">dungeon</option>
-            <option value="endless">endless</option>
-            <option value="shop">shop</option>
-            <option value="village2">village2</option>
-          </select>
-        </label>
-        <label>Facing
-          <select value={n.facing} onChange={(e) => { n.facing = +e.target.value as 1 | -1; setRefresh((r) => r + 1); }}>
-            <option value={1}>Right</option>
-            <option value={-1}>Left</option>
-          </select>
-        </label>
-        <label>Asset<input type="text" value={n.asset ?? ""} onChange={(e) => { n.asset = e.target.value || undefined; setRefresh((r) => r + 1); }} /></label>
-        <label>Draw Size<input type="number" value={n.drawSize ?? 28} onChange={(e) => { n.drawSize = +e.target.value; setRefresh((r) => r + 1); }} /></label>
-        <label>Dialog Lines
-          <textarea
-            value={n.lines.join("\n")}
-            rows={3}
-            onChange={(e) => { n.lines = e.target.value.split("\n"); setRefresh((r) => r + 1); }}
-          />
-        </label>
-        <button className="editor-btn danger" onClick={() => { engine.removeSelected(); setRefresh((r) => r + 1); }}>Delete</button>
-      </div>
-    </div>
   );
 }
 
