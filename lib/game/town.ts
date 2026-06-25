@@ -773,6 +773,15 @@ export class TownEngine {
 
     // minimap (screen-space, bottom-right corner)
     this.drawMinimap();
+
+    // transition fade overlay (screen-space, drawn after camera restore + minimap)
+    if (this.transitionState !== "none") {
+      const FADE = 0.3;
+      const t = Math.min(1, this.transitionTimer / FADE);
+      const alpha = this.transitionState === "fade-out" ? t : 1 - t;
+      this.ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+      this.ctx.fillRect(0, 0, this.viewW, this.viewH);
+    }
   }
 
   private drawMinimap() {
