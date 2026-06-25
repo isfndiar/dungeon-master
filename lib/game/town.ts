@@ -537,7 +537,7 @@ export class TownEngine {
       { id: "wv_c", name: "Jonas",  asset: "/sprites/villager/villager_07_keyed.png", drawSize: 52, x: 180, y: 580, radius: 80,  speed: 28 },
       { id: "wv_d", name: "Bridget",asset: "/sprites/villager/villager_08_keyed.png", drawSize: 52, x: 620, y: 380, radius: 110, speed: 33 },
       { id: "wv_e", name: "Owen",   asset: "/sprites/villager/villager_10_keyed.png", drawSize: 52, x: 340, y: 640, radius: 90,  speed: 31 },
-      { id: "wv_f", name: "Tara",   asset: "/sprites/villager/villager_11_keyed.png", drawSize: 52, x: 700, y: 500, radius: 100, speed: 34 },
+      { id: "wv_f", name: "Tara",   asset: "/sprites/villager/villager_01_keyed.png", drawSize: 52, x: 700, y: 500, radius: 100, speed: 34 },
     ];
     for (const w of pngWanderers) {
       npcs.push({
