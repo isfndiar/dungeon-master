@@ -1027,7 +1027,10 @@ export class Engine {
       e.bob += dt * 6;
       if (e.hitFlash > 0) e.hitFlash -= dt;
       if (e.frozen > 0) e.frozen -= dt;
-      const slow = e.frozen > 0 ? 0.25 : 1; // frozen enemies crawl
+      const frozenSlow = e.frozen > 0 ? 0.25 : 1; // frozen enemies crawl
+      // phase 3 boss = enraged: moves & basic-attacks faster
+      const enrage = e.isBoss && e.phase === 3 ? 1.5 : 1;
+      const slow = frozenSlow * enrage;
       const dx = this.px - e.x, dy = this.py - e.y;
       const d = Math.hypot(dx, dy) || 1;
       e.faceLeft = dx < 0;
@@ -1046,7 +1049,7 @@ export class Engine {
             e.y += (dy / d) * e.speed * slow * dt;
           }
         }
-        e.atkTimer -= dt;
+        e.atkTimer -= dt * enrage;
         if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0 && !locked) {
           this.enemyFire(e);
           e.atkTimer = e.atkCooldown;
@@ -1059,7 +1062,7 @@ export class Engine {
           e.y += (dy / d) * e.speed * slow * dt;
         }
         // contact damage
-        e.atkTimer -= dt;
+        e.atkTimer -= dt * enrage;
         if (d < e.size * 0.4 + 10 && e.atkTimer <= 0 && !locked) {
           this.damagePlayer(e.dmg);
           e.atkTimer = e.atkCooldown;
@@ -1100,15 +1103,19 @@ export class Engine {
           if (boss.breakTimer <= 0) this.endBreak(boss);
         }
       } else if (boss.spellPool.length > 0) {
+        // phase 3 = enraged: spells tick faster and cast more often
+        const enraged = boss.phase === 3;
+        const timeScale = enraged ? 1.6 : 1;   // spell timer drains 60% faster
+        const cdScale = enraged ? 0.6 : 1;     // next-cast cooldown shortened
         // shielded — normal spell behaviour
-        if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt;
+        if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt * timeScale;
         if (boss.castLock <= 0 && boss.frozen <= 0) {
-          this.bossSpellTimer -= dt;
+          this.bossSpellTimer -= dt * timeScale;
           if (this.bossSpellTimer <= 0) {
             const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
             boss.castAnim = 1;   // trigger spell cast windup animation
             this.castBossSpell(boss, pick);
-            this.bossSpellTimer = pick.cooldown;
+            this.bossSpellTimer = pick.cooldown * cdScale;
           }
         }
       }
@@ -2765,8 +2772,27 @@ export class Engine {
       ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1;
+    } else if (e.phase === 3) {
+      // enraged: pulsing red overlay
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.22 + 0.12 * Math.sin(performance.now() / 150);
+      ctx.fillStyle = "#ff2a2a";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
+    // enraged aura ring (phase 3, when active)
+    if (e.phase === 3 && e.bossState === "shielded") {
+      ctx.save();
+      ctx.globalAlpha = 0.25 + 0.15 * Math.sin(performance.now() / 120);
+      ctx.strokeStyle = "#ff3a2a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, size * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     // shield bubble around boss while shielded
     if (e.bossState === "shielded" && e.shieldMax > 0) {
       this.drawShieldBubble(e, cx, cy, size);
