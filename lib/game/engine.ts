@@ -1119,6 +1119,71 @@ export class Engine {
     return boss.spriteKey.replace("b_", "") as BossKind;
   }
 
+  // ---- spell building blocks (reused by many boss spells) ----
+
+  // fan/cone of bolts aimed toward the player
+  private spawnCone(boss: Enemy, count: number, spreadRad: number, speed: number, dmgMult: number, tint: string, kind: "bolt" | "fireball" = "bolt") {
+    const base = Math.atan2(this.py - boss.y, this.px - boss.x);
+    for (let i = 0; i < count; i++) {
+      const ang = base + (count > 1 ? (i - (count - 1) / 2) * (spreadRad / (count - 1)) : 0);
+      this.projectiles.push({
+        x: boss.x, y: boss.y,
+        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+        dmg: Math.round(boss.dmg * dmgMult),
+        from: "enemy", kind, life: 2.5, radius: 4, tint,
+      });
+    }
+  }
+
+  // full 360° ring of bolts
+  private spawnBoltRing(boss: Enemy, count: number, speed: number, dmgMult: number, tint: string, jitter = 0, kind: "bolt" | "fireball" = "bolt") {
+    const base = rand(0, Math.PI * 2);
+    for (let i = 0; i < count; i++) {
+      const ang = base + (i / count) * Math.PI * 2 + (jitter ? rand(-jitter, jitter) : 0);
+      this.projectiles.push({
+        x: boss.x, y: boss.y,
+        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+        dmg: Math.round(boss.dmg * dmgMult),
+        from: "enemy", kind, life: 2.6, radius: 4, tint,
+      });
+    }
+  }
+
+  // a persistent ground pool at a position
+  private spawnPoolAt(x: number, y: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web", telegraph: number) {
+    this.pools.push({
+      x: clamp(x, FIELD.x + 16, FIELD.x + FIELD.w - 16),
+      y: clamp(y, FIELD.y + 16, FIELD.y + FIELD.h - 16),
+      radius, time, timeMax: time, dmgPerSec,
+      slow, slowTime, snare, snareTime,
+      color, kind, tickAcc: 0, spawnTelegraph: telegraph,
+    });
+  }
+
+  // a telegraphed explosion AoE
+  private spawnExplosion(x: number, y: number, radius: number, telegraph: number, dmgMult: number, color: string, boss: Enemy, knockback = 0, leavePool = false, poolColor = "#ff6a2a") {
+    this.hazards.push({
+      x: clamp(x, FIELD.x + 16, FIELD.x + FIELD.w - 16),
+      y: clamp(y, FIELD.y + 16, FIELD.y + FIELD.h - 16),
+      radius, telegraph, telegraphMax: telegraph,
+      dmg: Math.round(boss.dmg * dmgMult),
+      color, exploded: false, fade: 0, kind: "eruption",
+      knockback, leavePool, poolColor,
+    });
+  }
+
+  // a line of pools forming a wall, perpendicular to boss→player, offset ahead of player
+  private spawnWall(boss: Enemy, segs: number, gap: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web") {
+    const toPlayer = Math.atan2(this.py - boss.y, this.px - boss.x);
+    const perp = toPlayer + Math.PI / 2;
+    for (let i = 0; i < segs; i++) {
+      const off = (i - (segs - 1) / 2) * gap;
+      const x = this.px + Math.cos(perp) * off;
+      const y = this.py + Math.sin(perp) * off;
+      this.spawnPoolAt(x, y, radius, time, dmgPerSec, slow, slowTime, snare, snareTime, color, kind, 0.4);
+    }
+  }
+
   private castBossSpell(boss: Enemy, spell: BossSpell) {
     const t = spell.tier;
     switch (spell.kind) {
@@ -1364,6 +1429,249 @@ export class Engine {
         });
         boss.castLock = 0.5;
         this.float("ERUPTION!", boss.x, boss.y - 30, "#ff3a2a");
+        break;
+      }
+
+      // ========== GIANT SLIME — phase 2 ==========
+      case "acidSpray": {
+        // wide cone of acid bolts toward player
+        this.spawnCone(boss, 7, Math.PI * 0.55, 170, 0.55, "#9be04a");
+        boss.castLock = 0.3;
+        this.float("ACID SPRAY!", boss.x, boss.y - 30, "#9be04a");
+        break;
+      }
+      case "slimeWall": {
+        // line of slow pools cutting across the player's lane
+        this.spawnWall(boss, 5, 30, 24, 5, Math.round(boss.dmg * 0.4), 0.5, 1.5, false, 0, "#5fcc5f", "slime");
+        this.float("SLIME WALL!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      case "doubleSlam": {
+        // two telegraphed slams: on player + ahead of player
+        this.spawnExplosion(this.px, this.py, 52, 0.45, 1.0, "#5fcc5f", boss, 40);
+        const a = Math.atan2(this.py - boss.y, this.px - boss.x);
+        this.spawnExplosion(this.px + Math.cos(a) * 60, this.py + Math.sin(a) * 60, 52, 0.7, 1.0, "#5fcc5f", boss, 40);
+        boss.castLock = 0.9;
+        this.float("DOUBLE SLAM!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+
+      // ========== GIANT SLIME — phase 3 ==========
+      case "toxicFlood": {
+        // arena flooded with many toxic pools
+        for (let i = 0; i < 6; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 110);
+          this.spawnPoolAt(this.px + Math.cos(ang) * off, this.py + Math.sin(ang) * off,
+            30, 6, Math.round(boss.dmg * 0.5), 0.4, 1.2, false, 0, "#7ad04a", "slime", 0.3);
+        }
+        this.float("TOXIC FLOOD!", boss.x, boss.y - 30, "#7ad04a");
+        break;
+      }
+      case "megaSplit": {
+        // few large, tankier slimes
+        for (let i = 0; i < 3; i++) {
+          const ang = (i / 3) * Math.PI * 2 + rand(-0.2, 0.2);
+          this.spawnMini("slime", boss.x + Math.cos(ang) * 36, boss.y + Math.sin(ang) * 36,
+            Math.round(boss.maxHp * 0.16), Math.round(boss.dmg * 0.6), 22);
+        }
+        this.spawnRing(boss.x, boss.y, "#5fcc5f", 48);
+        this.float("MEGA SPLIT!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      case "groundPound": {
+        // huge slam centered on the boss with knockback + lingering pool
+        this.spawnExplosion(boss.x, boss.y, 120, 0.6, 1.3, "#5fcc5f", boss, 70, true, "#7ad04a");
+        boss.castLock = 0.8;
+        this.float("GROUND POUND!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+
+      // ========== SPIDER QUEEN — phase 2 ==========
+      case "venomSpit": {
+        // tight cone of venom + leaves a small pool where it lands near player
+        this.spawnCone(boss, 5, Math.PI * 0.35, 200, 0.6, "#b06ad0");
+        this.spawnPoolAt(this.px, this.py, 22, 4, Math.round(boss.dmg * 0.4), 0.3, 1, false, 0, "#b06ad0", "slime", 0.4);
+        boss.castLock = 0.3;
+        this.float("VENOM SPIT!", boss.x, boss.y - 30, "#b06ad0");
+        break;
+      }
+      case "webWall": {
+        // wall of snaring web across player's lane
+        this.spawnWall(boss, 5, 28, 22, 4, 0, 0, 0, true, 1.2, "#e8e8f0", "web");
+        this.float("WEB WALL!", boss.x, boss.y - 30, "#e8e8f0");
+        break;
+      }
+      case "leapStrike": {
+        // boss leaps to player and slams (telegraph at player pos)
+        this.spawnExplosion(this.px, this.py, 60, 0.7, 1.2, "#dfe3e8", boss, 55);
+        boss.castLock = 0.8;
+        this.float("LEAP STRIKE!", boss.x, boss.y - 30, "#dfe3e8");
+        break;
+      }
+
+      // ========== SPIDER QUEEN — phase 3 ==========
+      case "spiderRain": {
+        // egg-sacs rain down as telegraphed AoEs that hatch nothing (pure damage)
+        for (let i = 0; i < 7; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 100);
+          this.spawnExplosion(this.px + Math.cos(ang) * off, this.py + Math.sin(ang) * off,
+            34, 0.4 + i * 0.15, 0.9, "#dfe3e8", boss);
+        }
+        this.float("SPIDER RAIN!", boss.x, boss.y - 30, "#dfe3e8");
+        break;
+      }
+      case "broodSwarm": {
+        // big summon + haste to all minions
+        for (let i = 0; i < 6; i++) {
+          const ang = (i / 6) * Math.PI * 2;
+          this.spawnMini("spider", boss.x + Math.cos(ang) * 42, boss.y + Math.sin(ang) * 42,
+            Math.round(boss.maxHp * 0.06), Math.round(boss.dmg * 0.5), 14);
+        }
+        for (const e of this.enemies) if (!e.isBoss) e.speed *= 1.4;
+        this.spawnRing(boss.x, boss.y, "#dfe3e8", 46);
+        this.float("BROOD SWARM!", boss.x, boss.y - 30, "#dfe3e8");
+        break;
+      }
+      case "silkPrison": {
+        // large snare zone on player + bolt ring outward (forces dodge while rooted threat)
+        this.spawnPoolAt(this.px, this.py, 40, 4, 0, 0, 0, true, 1.6, "#e8e8f0", "web", 0.5);
+        this.spawnBoltRing(boss, 12, 170, 0.5, "#dfe3e8");
+        this.float("SILK PRISON!", boss.x, boss.y - 30, "#e8e8f0");
+        break;
+      }
+
+      // ========== LICH — phase 2 ==========
+      case "soulLance": {
+        // twin beams at player + offset angle
+        const tele = 0.5, active = 0.3;
+        for (let i = 0; i < 2; i++) {
+          const angOff = i === 0 ? 0 : rand(-0.6, 0.6);
+          const baseAng = Math.atan2(this.py - boss.y, this.px - boss.x) + angOff;
+          const len = dist(boss.x, boss.y, this.px, this.py) + 40;
+          this.beams.push({
+            x1: boss.x, y1: boss.y,
+            x2: boss.x + Math.cos(baseAng) * len, y2: boss.y + Math.sin(baseAng) * len,
+            telegraph: tele, telegraphMax: tele, active: 0, activeMax: active,
+            dmgTick: 0, dmg: Math.round(boss.dmg * 1.4), color: "#b06cff",
+            sweep: 0, sweepAngle: 0, baseAngle: baseAng,
+          });
+        }
+        boss.castLock = tele + active;
+        this.float("SOUL LANCE!", boss.x, boss.y - 30, "#b06cff");
+        break;
+      }
+      case "boneSpear": {
+        // fast piercing cone of bone shards
+        this.spawnCone(boss, 5, Math.PI * 0.25, 240, 0.7, "#c8b8e8");
+        boss.castLock = 0.3;
+        this.float("BONE SPEAR!", boss.x, boss.y - 30, "#c8b8e8");
+        break;
+      }
+      case "curseZone": {
+        // dark pools that damage + slow around the player
+        for (let i = 0; i < 3; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 80);
+          this.spawnPoolAt(this.px + Math.cos(ang) * off, this.py + Math.sin(ang) * off,
+            28, 5, Math.round(boss.dmg * 0.5), 0.4, 1.2, false, 0, "#8a5ad0", "slime", 0.4);
+        }
+        this.float("CURSE ZONE!", boss.x, boss.y - 30, "#8a5ad0");
+        break;
+      }
+
+      // ========== LICH — phase 3 ==========
+      case "deathNova": {
+        // expanding bolt ring + explosion on boss
+        this.spawnBoltRing(boss, 20, 190, 0.6, "#b06cff");
+        this.spawnExplosion(boss.x, boss.y, 90, 0.4, 1.0, "#8a5ad0", boss, 50);
+        boss.castLock = 0.4;
+        this.float("DEATH NOVA!", boss.x, boss.y - 30, "#b06cff");
+        break;
+      }
+      case "boneStorm": {
+        // dense double ring of bones
+        this.spawnBoltRing(boss, 24, 170, 0.6, "#c8b8e8");
+        this.spawnBoltRing(boss, 24, 230, 0.6, "#c8b8e8", 0.1);
+        this.float("BONE STORM!", boss.x, boss.y - 30, "#c8b8e8");
+        break;
+      }
+      case "undeadArmy": {
+        // large summon: skeletons + ghosts
+        for (let i = 0; i < 4; i++) {
+          const ang = rand(0, Math.PI * 2), off = rand(30, 60);
+          this.spawnMini("skeleton", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.1), Math.round(boss.dmg * 0.5), 16);
+        }
+        for (let i = 0; i < 2; i++) {
+          const ang = rand(0, Math.PI * 2), off = rand(30, 60);
+          this.spawnMini("ghost", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.08), Math.round(boss.dmg * 0.4), 16);
+        }
+        this.spawnRing(boss.x, boss.y, "#b06cff", 48);
+        this.float("UNDEAD ARMY!", boss.x, boss.y - 30, "#b06cff");
+        break;
+      }
+
+      // ========== LAVA GOLEM — phase 2 ==========
+      case "fireWall": {
+        // wall of lava across player's lane
+        this.spawnWall(boss, 5, 30, 26, 5, Math.round(boss.dmg * 0.6), 0.3, 1, false, 0, "#ff6a2a", "lava");
+        this.float("FIRE WALL!", boss.x, boss.y - 30, "#ff6a2a");
+        break;
+      }
+      case "magmaWave": {
+        // wide cone of fireballs
+        this.spawnCone(boss, 7, Math.PI * 0.5, 180, 0.6, "#ff8a2a", "fireball");
+        boss.castLock = 0.3;
+        this.float("MAGMA WAVE!", boss.x, boss.y - 30, "#ff8a2a");
+        break;
+      }
+      case "emberBurst": {
+        // ring of fireballs outward
+        this.spawnBoltRing(boss, 14, 180, 0.6, "#ff8a2a", 0, "fireball");
+        this.float("EMBER BURST!", boss.x, boss.y - 30, "#ff8a2a");
+        break;
+      }
+
+      // ========== LAVA GOLEM — phase 3 ==========
+      case "volcano": {
+        // 10 meteors raining across the arena
+        for (let i = 0; i < 10; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 110);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = 0.3 + i * 0.12;
+          this.hazards.push({
+            x: tx, y: ty, radius: 46,
+            telegraph: tele, telegraphMax: tele,
+            dmg: Math.round(boss.dmg * 1.1), color: "#ff6a2a",
+            exploded: false, fade: 0, kind: "meteor",
+          });
+        }
+        this.float("VOLCANO!", boss.x, boss.y - 30, "#ff6a2a");
+        break;
+      }
+      case "lavaTsunami": {
+        // multiple lava walls sweeping — fill much of the arena with lava lanes
+        for (let row = 0; row < 3; row++) {
+          for (let i = 0; i < 4; i++) {
+            const x = FIELD.x + 40 + i * (FIELD.w / 4);
+            const y = FIELD.y + 50 + row * (FIELD.h / 3);
+            this.spawnPoolAt(x, y, 30, 5, Math.round(boss.dmg * 0.6), 0.3, 1, false, 0, "#ff6a2a", "lava", 0.4 + row * 0.3);
+          }
+        }
+        this.float("LAVA TSUNAMI!", boss.x, boss.y - 30, "#ff3a2a");
+        break;
+      }
+      case "infernoNova": {
+        // massive explosion on boss + leaves big lava pool
+        this.spawnExplosion(boss.x, boss.y, 130, 0.6, 1.4, "#ff3a2a", boss, 65, true, "#ff6a2a");
+        this.spawnBoltRing(boss, 12, 160, 0.5, "#ff8a2a", 0, "fireball");
+        boss.castLock = 0.8;
+        this.float("INFERNO NOVA!", boss.x, boss.y - 30, "#ff3a2a");
         break;
       }
     }
