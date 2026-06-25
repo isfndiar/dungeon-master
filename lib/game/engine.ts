@@ -509,7 +509,23 @@ export class Engine {
     });
   }
 
-  // ---------- main loop ----------
+  // summon a mini-monster (boss spell add). Reduced gold/xp, no spell pool.
+  private spawnMini(kind: MonsterKind, x: number, y: number, hp: number, dmg: number, size: number) {
+    const def: MonsterDef = MONSTERS[kind];
+    this.enemies.push({
+      x: clamp(x, FIELD.x + 8, FIELD.x + FIELD.w - 8),
+      y: clamp(y, FIELD.y + 8, FIELD.y + FIELD.h - 8),
+      hp, maxHp: hp,
+      dmg, speed: def.speed * 1.2,
+      ranged: def.ranged, projectile: def.projectile,
+      atkTimer: rand(0, def.attackCooldown), atkCooldown: def.attackCooldown,
+      size,
+      sprite: monsterSprites[kind], spriteKey: "m_" + kind,
+      gold: Math.round(def.gold * 0.3), xp: Math.round(def.xp * 0.3),
+      isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+      phase: 1, spellPool: [], castLock: 0,
+    });
+  }
   private loop = (now: number) => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.loop);
@@ -1095,11 +1111,61 @@ export class Engine {
         break;
       }
       // ----- slime family (Stage B) -----
-      case "split":
-      case "slimePool":
-      case "bounceSlam":
-        // implemented in Stage B
+      case "split": {
+        const count = t === 1 ? 2 : t === 2 ? 4 : 6;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2 + rand(-0.2, 0.2);
+          const off = 30 + rand(0, 20);
+          this.spawnMini("slime", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.08), Math.round(boss.dmg * 0.4), 14);
+        }
+        this.spawnRing(boss.x, boss.y, "#5fcc5f", 40);
+        this.float("SPLIT!", boss.x, boss.y - 30, "#5fcc5f");
         break;
+      }
+      case "slimePool": {
+        const count = t === 1 ? 1 : t === 2 ? 3 : 5;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 90);
+          const tx = clamp(boss.x + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(boss.y + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.pools.push({
+            x: tx, y: ty, radius: 28,
+            time: 5, timeMax: 5,
+            dmgPerSec: Math.round(boss.dmg * 0.4),
+            slow: 0.5, slowTime: 2, snare: false, snareTime: 0,
+            color: "#5fcc5f", kind: "slime",
+            tickAcc: 0, spawnTelegraph: 0.4,
+          });
+        }
+        this.float("SLIME POOL!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      case "bounceSlam": {
+        const slams = t === 1 ? 1 : t === 2 ? 2 : 1;
+        const radius = t === 3 ? 80 : 50;
+        const knock = t === 2 ? 45 : t === 3 ? 60 : 0;
+        for (let i = 0; i < slams; i++) {
+          // staggered slams target player pos at cast time + offset
+          const off = i === 0 ? 0 : 50;
+          const ang = rand(0, Math.PI * 2);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = 0.7 + i * 0.4;
+          this.hazards.push({
+            x: tx, y: ty, radius,
+            telegraph: tele, telegraphMax: tele,
+            dmg: Math.round(boss.dmg * 1.0),
+            color: "#5fcc5f",
+            exploded: false, fade: 0, kind: "bounceSlam",
+            knockback: knock,
+          });
+        }
+        boss.castLock = 0.7 + slams * 0.4;
+        this.float("BOUNCE SLAM!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
       // ----- spider family (Stage C) -----
       case "webBarrage":
       case "webTrap":
@@ -1149,8 +1215,42 @@ export class Engine {
   }
 
   private updatePools(dt: number) {
-    // implemented in Stage E
-    void dt;
+    for (const p of this.pools) {
+      // pre-activate telegraph
+      if (p.spawnTelegraph > 0) {
+        p.spawnTelegraph -= dt;
+        continue;
+      }
+      p.time -= dt;
+      // dmg tick every 0.5s if player inside
+      p.tickAcc += dt;
+      if (p.tickAcc >= 0.5) {
+        p.tickAcc = 0;
+        if (dist(this.px, this.py, p.x, p.y) < p.radius) {
+          this.damagePlayer(Math.round(p.dmgPerSec * 0.5));
+        }
+      }
+      // apply debuff each frame while overlapping (refreshes timer)
+      if (dist(this.px, this.py, p.x, p.y) < p.radius) {
+        if (p.snare) {
+          this.playerSnare = Math.max(this.playerSnare, p.snareTime);
+        } else if (p.slow > 0) {
+          this.playerSlow = Math.max(this.playerSlow, p.slowTime);
+          this.playerSlowMult = 1 - p.slow;
+        }
+      }
+      // bubbling particles
+      if (Math.random() < 0.3) {
+        const ang = rand(0, Math.PI * 2);
+        const r = rand(0, p.radius * 0.8);
+        this.particles.push({
+          x: p.x + Math.cos(ang) * r, y: p.y + Math.sin(ang) * r,
+          vx: rand(-10, 10), vy: rand(-30, -10),
+          life: 0.5, color: p.color,
+        });
+      }
+    }
+    this.pools = this.pools.filter((p) => p.time > 0);
   }
 
   private explodeAoE(h: HazardAoE) {
@@ -1251,8 +1351,36 @@ export class Engine {
   }
 
   private drawPools(ctx: CanvasRenderingContext2D) {
-    // implemented in Stage E
-    void ctx;
+    const now = performance.now();
+    for (const p of this.pools) {
+      ctx.save();
+      if (p.spawnTelegraph > 0) {
+        // pre-activate telegraph: dashed outline only
+        const pulse = 0.5 + 0.3 * Math.sin(now / 60);
+        ctx.globalAlpha = 0.6 * pulse;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        // active pool: bubbling translucent fill + wavy edge
+        const k = p.time / p.timeMax;   // 1 → 0 fade
+        const wobble = Math.sin(now / 150) * 2;
+        ctx.globalAlpha = 0.35 * k;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius + wobble, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.7 * k;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   private updateProjectiles(dt: number) {
