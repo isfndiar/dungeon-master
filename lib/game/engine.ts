@@ -3,7 +3,7 @@ import {
   HEROES, HeroId, HeroDef, hpForLevel, dmgForLevel, SkillDef, SkillKind,
 } from "./heroes";
 import {
-  MONSTERS, BOSSES, MonsterDef, BossDef, BossKind, MonsterKind,
+  MONSTERS, BOSSES, MonsterDef, BossDef, BossKind, MonsterKind, BossSpellKind, BossSpell, SpellTier,
 } from "./monsters";
 import { DUNGEONS, DungeonId, DungeonDef } from "./dungeons";
 import {
@@ -59,6 +59,53 @@ interface Projectile {
   homingTurn?: number;     // max turn rate (rad/sec)
   hitSet2?: Set<Enemy>;    // swords can hit a few enemies each
   hitsLeft?: number;       // remaining hits for a homing sword
+  tint?: string;           // optional color tint for boss spells
+}
+
+interface HazardAoE {
+  x: number; y: number;        // ground target
+  radius: number;              // explosion radius
+  telegraph: number;           // warning countdown (s)
+  telegraphMax: number;        // initial telegraph duration (for fall anim)
+  dmg: number;
+  color: string;
+  exploded: boolean;
+  fade: number;                // post-explosion fade timer
+  kind: "meteor" | "bounceSlam" | "eruption";
+  knockback?: number;          // px to push player on hit
+  leavePool?: boolean;         // eruption tier 3 leaves pool at center
+  poolColor?: string;
+}
+
+interface HazardBeam {
+  x1: number; y1: number;      // boss pos (locked at cast)
+  x2: number; y2: number;      // target pos (locked, except sweep rotates)
+  telegraph: number;           // warning countdown
+  telegraphMax: number;
+  active: number;              // beam active time remaining
+  activeMax: number;
+  dmgTick: number;             // tick accumulator (0.25s ticks)
+  dmg: number;
+  color: string;
+  sweep?: number;              // sweep angular velocity (rad/s) for tier 3
+  sweepAngle?: number;         // current sweep angle offset
+  baseAngle?: number;          // initial angle from boss to target
+}
+
+interface HazardPool {
+  x: number; y: number;
+  radius: number;
+  time: number;                // remaining lifetime
+  timeMax: number;
+  dmgPerSec: number;
+  slow: number;                // 0..1 movement slow fraction
+  slowTime: number;            // debuff duration applied on overlap
+  snare: boolean;              // full root
+  snareTime: number;           // snare debuff duration
+  color: string;
+  kind: "slime" | "lava" | "web";
+  tickAcc: number;             // dmg tick accumulator
+  spawnTelegraph: number;      // pre-activate warning (0 = active)
 }
 
 interface Enemy {
@@ -75,6 +122,9 @@ interface Enemy {
   faceLeft: boolean;
   bob: number;
   frozen: number; // seconds remaining of frozen/slow
+  phase: 1 | 2 | 3;            // current boss phase
+  spellPool: BossSpell[];      // cached spells for current phase
+  castLock: number;            // boss immobile while > 0
 }
 
 interface FloatText { x: number; y: number; text: string; life: number; color: string; }
@@ -166,6 +216,10 @@ export class Engine {
   private walkBob = 0;
   private animTime = 0;   // drives walk/idle frame index
   private moving = false; // moved this frame
+  // debuffs from boss pool hazards
+  private playerSlow = 0;        // seconds remaining of movement slow
+  private playerSlowMult = 1;    // multiplier while active (0.5 = half speed)
+  private playerSnare = 0;       // seconds remaining of root
   // buffs
   private dmgBuff = 0;      // seconds remaining of damage buff
   private dmgBuffMult = 1;  // multiplier while active
@@ -183,6 +237,10 @@ export class Engine {
   private projectiles: Projectile[] = [];
   private floats: FloatText[] = [];
   private particles: Particle[] = [];
+  private hazards: HazardAoE[] = [];
+  private beams: HazardBeam[] = [];
+  private pools: HazardPool[] = [];
+  private bossSpellTimer = 999;   // boss spell cooldown accumulator
 
   private phase: Phase = "intro";
   private map!: DungeonMap;
@@ -300,6 +358,11 @@ export class Engine {
     room.visited = true;
     this.enemies = [];
     this.projectiles = [];
+    this.hazards = [];
+    this.beams = [];
+    this.pools = [];
+    this.playerSlow = 0;
+    this.playerSnare = 0;
 
     // place the player just inside the door they entered from
     if (fromDir) {
@@ -356,12 +419,14 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: def.gold, xp: def.xp,
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+      phase: 1, spellPool: [], castLock: 0,
     });
   }
 
   private spawnBoss() {
     const def: BossDef = BOSSES[this.dungeon.boss];
     const d = this.dungeon.difficulty;
+    const pool = def.spells.filter((s) => s.tier === 1);
     this.enemies.push({
       x: VIEW_W / 2, y: FIELD.y + 40,
       hp: Math.round(def.hp * d), maxHp: Math.round(def.hp * d),
@@ -372,7 +437,15 @@ export class Engine {
       sprite: bossSprites[def.kind], spriteKey: "b_" + def.kind,
       gold: def.gold, xp: def.xp,
       isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
+      phase: 1, spellPool: pool, castLock: 0,
     });
+    this.bossSpellTimer = this.pickBossCooldown(pool);
+  }
+
+  private pickBossCooldown(pool: BossSpell[]): number {
+    if (pool.length === 0) return 999;
+    // use min cooldown of pool for first cast timing
+    return Math.min(...pool.map((s) => s.cooldown));
   }
 
   private spawnEndlessWave() {
@@ -388,6 +461,7 @@ export class Engine {
         const bossKind = bosses[Math.floor(Math.random() * bosses.length)];
         const def: BossDef = BOSSES[bossKind];
         const bossHp = Math.round(def.hp * diff * 1.5);
+        const pool = def.spells.filter((s) => s.tier === 1);
         this.enemies.push({
           x: VIEW_W / 2, y: FIELD.y + 40,
           hp: bossHp, maxHp: bossHp,
@@ -398,7 +472,9 @@ export class Engine {
           sprite: bossSprites[def.kind], spriteKey: "b_" + def.kind,
           gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
           isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
+          phase: 1, spellPool: pool, castLock: 0,
         });
+        this.bossSpellTimer = this.pickBossCooldown(pool);
         this.float("BOSS WAVE!", VIEW_W / 2, VIEW_H / 2 - 30, "#ff3a1a");
       }
       // fewer minions alongside boss
@@ -429,6 +505,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+      phase: 1, spellPool: [], castLock: 0,
     });
   }
 
@@ -467,6 +544,7 @@ export class Engine {
     this.updatePlayer(dt);
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
+    this.updateHazards(dt);
     this.updateFx(dt);
 
     // newly cleared this frame?
@@ -589,10 +667,14 @@ export class Engine {
     if (this.input.pressed("w", "arrowup")) my -= 1;
     if (this.input.pressed("s", "arrowdown")) my += 1;
     const len = Math.hypot(mx, my);
-    const moveSpeed = (this.hero.speed + this.bonusSpeed) * (this.speedBuff > 0 ? this.speedBuffMult : 1);
-    this.moving = len > 0;
+    // debuff: snare = full root, slow = reduced multiplier
+    let debuffMult = 1;
+    if (this.playerSnare > 0) debuffMult = 0;
+    else if (this.playerSlow > 0) debuffMult = this.playerSlowMult;
+    const moveSpeed = (this.hero.speed + this.bonusSpeed) * (this.speedBuff > 0 ? this.speedBuffMult : 1) * debuffMult;
+    this.moving = len > 0 && debuffMult > 0;
     this.animTime += dt;
-    if (len > 0) {
+    if (len > 0 && debuffMult > 0) {
       mx /= len; my /= len;
       this.px += mx * moveSpeed * dt;
       this.py += my * moveSpeed * dt;
@@ -614,6 +696,8 @@ export class Engine {
     if (this.speedBuff > 0) this.speedBuff -= dt;
     if (this.rapidFire > 0) this.rapidFire -= dt;
     if (this.lifeStealBuff > 0) this.lifeStealBuff -= dt;
+    if (this.playerSlow > 0) this.playerSlow -= dt;
+    if (this.playerSnare > 0) this.playerSnare -= dt;
     if (this.healOverTime > 0) {
       this.healOverTime -= dt;
       this.php = Math.min(this.phpMax, this.php + 14 * dt);
@@ -903,16 +987,19 @@ export class Engine {
       const dx = this.px - e.x, dy = this.py - e.y;
       const d = Math.hypot(dx, dy) || 1;
       e.faceLeft = dx < 0;
+      const locked = e.isBoss && e.castLock > 0; // boss immobile during castLock
 
       const desired = e.ranged ? 110 : 0;
       if (e.ranged) {
         // keep distance
-        if (d < desired - 10) {
-          e.x -= (dx / d) * e.speed * slow * dt;
-          e.y -= (dy / d) * e.speed * slow * dt;
-        } else if (d > desired + 10) {
-          e.x += (dx / d) * e.speed * slow * dt;
-          e.y += (dy / d) * e.speed * slow * dt;
+        if (!locked) {
+          if (d < desired - 10) {
+            e.x -= (dx / d) * e.speed * slow * dt;
+            e.y -= (dy / d) * e.speed * slow * dt;
+          } else if (d > desired + 10) {
+            e.x += (dx / d) * e.speed * slow * dt;
+            e.y += (dy / d) * e.speed * slow * dt;
+          }
         }
         e.atkTimer -= dt;
         if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0) {
@@ -921,8 +1008,10 @@ export class Engine {
         }
       } else {
         // chase
-        e.x += (dx / d) * e.speed * slow * dt;
-        e.y += (dy / d) * e.speed * slow * dt;
+        if (!locked) {
+          e.x += (dx / d) * e.speed * slow * dt;
+          e.y += (dy / d) * e.speed * slow * dt;
+        }
         // contact damage
         e.atkTimer -= dt;
         if (d < e.size * 0.4 + 10 && e.atkTimer <= 0) {
@@ -947,6 +1036,223 @@ export class Engine {
         }
       }
     }
+
+    // boss spell system: phase transitions + cooldown + castLock
+    const boss = this.enemies.find((e) => e.isBoss);
+    if (boss && boss.spellPool.length > 0 && this.phase === "playing") {
+      // phase transition detection on HP thresholds
+      const hpRatio = boss.hp / boss.maxHp;
+      const newPhase: 1 | 2 | 3 = hpRatio > 0.66 ? 1 : hpRatio > 0.33 ? 2 : 3;
+      if (newPhase !== boss.phase) {
+        boss.phase = newPhase;
+        const def = BOSSES[this.bossKindOf(boss)];
+        boss.spellPool = def.spells.filter((s) => s.tier === newPhase);
+        const label = newPhase === 3 ? "ENRAGED!" : "PHASE " + newPhase + "!";
+        this.float(label, boss.x, boss.y - 40, "#ff3a1a");
+        this.spawnRing(boss.x, boss.y, "#ff3a1a", 60);
+        boss.hitFlash = 0.3;
+      }
+      // castLock tick (boss immobile during beam/eruption) — frozen pauses it
+      if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt;
+      // spell cooldown only ticks when not locked and not frozen
+      if (boss.castLock <= 0 && boss.frozen <= 0) {
+        this.bossSpellTimer -= dt;
+        if (this.bossSpellTimer <= 0) {
+          const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
+          this.castBossSpell(boss, pick);
+          this.bossSpellTimer = pick.cooldown;
+        }
+      }
+    }
+  }
+
+  private bossKindOf(boss: Enemy): BossKind {
+    return boss.spriteKey.replace("b_", "") as BossKind;
+  }
+
+  private castBossSpell(boss: Enemy, spell: BossSpell) {
+    const t = spell.tier;
+    switch (spell.kind) {
+      // ----- lava family -----
+      case "meteor": {
+        const count = t === 1 ? 4 : t === 2 ? 6 : 8;
+        const teleBase = t === 3 ? 0.5 : 0.8;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 80);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = teleBase + i * 0.4;
+          this.hazards.push({
+            x: tx, y: ty, radius: 50,
+            telegraph: tele, telegraphMax: tele,
+            dmg: Math.round(boss.dmg * 1.2),
+            color: "#ff6a2a",
+            exploded: false, fade: 0, kind: "meteor",
+          });
+        }
+        this.float("METEOR STORM!", boss.x, boss.y - 30, "#ff6a2a");
+        break;
+      }
+      // ----- slime family (Stage B) -----
+      case "split":
+      case "slimePool":
+      case "bounceSlam":
+        // implemented in Stage B
+        break;
+      // ----- spider family (Stage C) -----
+      case "webBarrage":
+      case "webTrap":
+      case "summonSpiderlings":
+        // implemented in Stage C
+        break;
+      // ----- lich family (Stage D) -----
+      case "deathBeam":
+      case "boneRing":
+      case "raiseDead":
+        // implemented in Stage D
+        break;
+      // ----- lava pools/eruption (Stage E) -----
+      case "lavaPool":
+      case "eruption":
+        // implemented in Stage E
+        break;
+    }
+  }
+
+  private updateHazards(dt: number) {
+    // AoE hazards (meteor, bounceSlam, eruption)
+    for (const h of this.hazards) {
+      if (!h.exploded) {
+        h.telegraph -= dt;
+        if (h.telegraph <= 0) {
+          h.exploded = true;
+          h.fade = 0.4;
+          this.explodeAoE(h);
+        }
+      } else {
+        h.fade -= dt;
+      }
+    }
+    this.hazards = this.hazards.filter((h) => !h.exploded || h.fade > 0);
+
+    // beams (Stage D)
+    this.updateBeams(dt);
+
+    // pools (Stage E)
+    this.updatePools(dt);
+  }
+
+  private updateBeams(dt: number) {
+    // implemented in Stage D
+    void dt;
+  }
+
+  private updatePools(dt: number) {
+    // implemented in Stage E
+    void dt;
+  }
+
+  private explodeAoE(h: HazardAoE) {
+    this.spawnRing(h.x, h.y, h.color, h.radius);
+    for (let i = 0; i < 16; i++) {
+      this.particles.push({
+        x: h.x, y: h.y,
+        vx: rand(-90, 90), vy: rand(-90, 90),
+        life: 0.6, color: i % 2 === 0 ? h.color : "#ffd24a",
+      });
+    }
+    if (dist(this.px, this.py, h.x, h.y) < h.radius) {
+      this.damagePlayer(h.dmg);
+      // knockback (bounceSlam, eruption tier 2+)
+      if (h.knockback && h.knockback > 0) {
+        const dx = this.px - h.x, dy = this.py - h.y;
+        const d = Math.hypot(dx, dy) || 1;
+        this.px = clamp(this.px + (dx / d) * h.knockback, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+        this.py = clamp(this.py + (dy / d) * h.knockback, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+      }
+    }
+    // eruption tier 3 leaves a lava pool at center
+    if (h.leavePool) {
+      this.pools.push({
+        x: h.x, y: h.y, radius: 30,
+        time: 5, timeMax: 5,
+        dmgPerSec: Math.round(h.dmg * 0.4),
+        slow: 0.3, slowTime: 1, snare: false, snareTime: 0,
+        color: h.poolColor || "#ff6a2a", kind: "lava",
+        tickAcc: 0, spawnTelegraph: 0,
+      });
+    }
+  }
+
+  private drawHazards(ctx: CanvasRenderingContext2D) {
+    for (const h of this.hazards) {
+      if (!h.exploded) {
+        const t = h.telegraph / h.telegraphMax;   // 1 → 0 as it counts down
+        const pulse = 0.4 + 0.3 * Math.sin(performance.now() / 80);
+        // ground telegraph circle
+        ctx.save();
+        ctx.globalAlpha = 0.18 * pulse;
+        ctx.fillStyle = h.color;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, h.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.7 * pulse;
+        ctx.strokeStyle = h.color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // crosshair
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(h.x - 6, h.y); ctx.lineTo(h.x + 6, h.y);
+        ctx.moveTo(h.x, h.y - 6); ctx.lineTo(h.x, h.y + 6);
+        ctx.stroke();
+        // falling meteor: descends from y - 100 to y over telegraph (only meteor kind)
+        if (h.kind === "meteor") {
+          const fallY = h.y - 100 * t;
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = h.color;
+          ctx.beginPath();
+          ctx.arc(h.x, fallY, 5 + (1 - t) * 2, 0, Math.PI * 2);
+          ctx.fill();
+          // trailing glow
+          ctx.globalAlpha = 0.4 * t;
+          ctx.fillStyle = "#ffd24a";
+          ctx.fillRect(h.x - 1, fallY, 2, h.y - fallY);
+        }
+        ctx.restore();
+      } else {
+        // explosion fade: expanding filled circle, white flash first 0.1s
+        const k = 1 - h.fade / 0.4;   // 0 → 1 as it fades out
+        const r = h.radius * (1 + k * 0.5);
+        ctx.save();
+        const grad = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, r);
+        grad.addColorStop(0, h.fade > 0.3 ? "#ffffff" : "#ffd24a");
+        grad.addColorStop(0.5, h.color);
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.globalAlpha = h.fade / 0.4;
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    // beams + pools (Stage D/E)
+    this.drawBeams(ctx);
+    this.drawPools(ctx);
+  }
+
+  private drawBeams(ctx: CanvasRenderingContext2D) {
+    // implemented in Stage D
+    void ctx;
+  }
+
+  private drawPools(ctx: CanvasRenderingContext2D) {
+    // implemented in Stage E
+    void ctx;
   }
 
   private updateProjectiles(dt: number) {
@@ -1139,6 +1445,11 @@ export class Engine {
     if (this.ended) return;
     this.ended = true;
     this.phase = win ? "win" : "lose";
+    this.hazards = [];
+    this.beams = [];
+    this.pools = [];
+    this.playerSlow = 0;
+    this.playerSnare = 0;
     // endless mode: always keep all loot (earned per wave, not per dungeon)
     const keepLoot = this.isEndless
       ? this.loot
@@ -1236,6 +1547,9 @@ export class Engine {
       }
       ctx.restore();
     }
+
+    // boss spell hazards (telegraphs + explosions)
+    this.drawHazards(ctx);
 
     // particles
     for (const pt of this.particles) {
