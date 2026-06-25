@@ -516,16 +516,67 @@ button {
   text-align: center;
   text-shadow: 1px 1px 0 #000;
   margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.boss-bar .phase-pips {
+  display: inline-flex;
+  gap: 3px;
+}
+.boss-bar .pip {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #000;
+  background: #3a2233;
+  transform: rotate(45deg);
+}
+.boss-bar .pip.on {
+  background: linear-gradient(#ffd24a, #ff8a2a);
+  box-shadow: 0 0 3px #ffb84a;
 }
 .boss-bar .track {
+  position: relative;
   height: 12px;
   background: rgba(0, 0, 0, 0.6);
   border: 2px solid #000;
+  overflow: hidden;
 }
-.boss-bar .track > div {
+.boss-bar .track .hp {
+  position: absolute;
+  inset: 0;
   height: 100%;
   background: linear-gradient(#ff5a5a, #aa2a2a);
   transition: width 0.15s;
+}
+.boss-bar .track .shield {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  background: linear-gradient(rgba(140, 225, 255, 0.95), rgba(60, 150, 220, 0.95));
+  border-right: 1px solid #d8f4ff;
+  transition: width 0.12s;
+}
+/* broken state: bar pulses gold, HP exposed (vulnerable) */
+.boss-bar.broken .track {
+  border-color: #ffd24a;
+  animation: bossBreakPulse 0.4s ease-in-out infinite alternate;
+}
+.boss-bar.broken .track .hp {
+  background: linear-gradient(#ffae5a, #e07a2a);
+}
+.boss-bar .break-label {
+  margin-top: 3px;
+  text-align: center;
+  font-size: 7px;
+  color: #ffd24a;
+  text-shadow: 1px 1px 0 #000;
+  animation: bossBreakPulse 0.4s ease-in-out infinite alternate;
+}
+@keyframes bossBreakPulse {
+  from { filter: brightness(1); }
+  to { filter: brightness(1.6); }
 }
 
 .overlay {

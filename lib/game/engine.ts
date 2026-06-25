@@ -22,6 +22,11 @@ export const VIEW_W = 480;
 export const VIEW_H = 270;
 const RENDER_SCALE = 2;
 
+// boss shield-break tunables
+const SHIELD_FRAC = 0.4;       // shield value = 40% of max HP per restore
+const BREAK_WINDOW = 5;        // seconds boss stays broken (vulnerable)
+const BREAK_DMG_AMP = 1.5;     // HP damage multiplier during break window
+
 // Play field inset (walls border)
 const WALL = 16;
 const FIELD = { x: WALL, y: WALL, w: VIEW_W - WALL * 2, h: VIEW_H - WALL * 2 };
@@ -127,6 +132,12 @@ interface Enemy {
   castLock: number;            // boss immobile while > 0
   atkAnim: number;             // 0..1 basic-attack swing progress (1=just started)
   castAnim: number;            // 0..1 spell cast windup progress (1=just started)
+  // shield-break system (boss only)
+  bossState: "shielded" | "broken";
+  shield: number;              // current shield value (blocks HP damage)
+  shieldMax: number;           // shield value on each restore
+  breakTimer: number;          // countdown of break window while broken
+  phaseFlash: number;          // 0..1 visual flash on break/phase change
 }
 
 interface FloatText { x: number; y: number; text: string; life: number; color: string; }
@@ -179,6 +190,8 @@ export interface HudState {
   dungeonName: string;
   minimap: MiniMap;
   bossName?: string; bossHp?: number; bossMax?: number;
+  bossShield?: number; bossShieldMax?: number;
+  bossPhase?: 1 | 2 | 3; bossBroken?: boolean; bossBreakTimer?: number;
   goldGained: number; xpGained: number;
   monstersKilled: number;
   isEndless?: boolean;
@@ -429,7 +442,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: def.gold, xp: def.xp,
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
     });
   }
 
@@ -437,9 +450,11 @@ export class Engine {
     const def: BossDef = BOSSES[this.dungeon.boss];
     const d = this.difficulty;
     const pool = def.spells.filter((s) => s.tier === 1);
+    const maxHp = Math.round(def.hp * d);
+    const shieldMax = Math.round(maxHp * SHIELD_FRAC);
     this.enemies.push({
       x: VIEW_W / 2, y: FIELD.y + 40,
-      hp: Math.round(def.hp * d), maxHp: Math.round(def.hp * d),
+      hp: maxHp, maxHp,
       dmg: Math.round(def.dmg * d), speed: def.speed,
       ranged: def.ranged, projectile: def.projectile,
       atkTimer: 1, atkCooldown: def.attackCooldown,
@@ -448,6 +463,7 @@ export class Engine {
       gold: def.gold, xp: def.xp,
       isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
       phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
+      bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0,
     });
     this.bossSpellTimer = this.pickBossCooldown(pool);
   }
@@ -472,6 +488,7 @@ export class Engine {
         const def: BossDef = BOSSES[bossKind];
         const bossHp = Math.round(def.hp * diff * 1.5);
         const pool = def.spells.filter((s) => s.tier === 1);
+        const shieldMax = Math.round(bossHp * SHIELD_FRAC);
         this.enemies.push({
           x: VIEW_W / 2, y: FIELD.y + 40,
           hp: bossHp, maxHp: bossHp,
@@ -483,6 +500,7 @@ export class Engine {
           gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
           isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
           phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
+          bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0,
         });
         this.bossSpellTimer = this.pickBossCooldown(pool);
         this.float("BOSS WAVE!", VIEW_W / 2, VIEW_H / 2 - 30, "#ff3a1a");
@@ -515,7 +533,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
     });
   }
 
@@ -533,7 +551,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * 0.3), xp: Math.round(def.xp * 0.3),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
     });
   }
   private loop = (now: number) => {
@@ -1013,7 +1031,8 @@ export class Engine {
       const dx = this.px - e.x, dy = this.py - e.y;
       const d = Math.hypot(dx, dy) || 1;
       e.faceLeft = dx < 0;
-      const locked = e.isBoss && e.castLock > 0; // boss immobile during castLock
+      // boss immobile during castLock or while broken (stunned, vulnerable)
+      const locked = e.isBoss && (e.castLock > 0 || e.bossState === "broken");
 
       const desired = e.ranged ? 110 : 0;
       if (e.ranged) {
@@ -1028,7 +1047,7 @@ export class Engine {
           }
         }
         e.atkTimer -= dt;
-        if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0) {
+        if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0 && !locked) {
           this.enemyFire(e);
           e.atkTimer = e.atkCooldown;
           e.atkAnim = 1;
@@ -1041,7 +1060,7 @@ export class Engine {
         }
         // contact damage
         e.atkTimer -= dt;
-        if (d < e.size * 0.4 + 10 && e.atkTimer <= 0) {
+        if (d < e.size * 0.4 + 10 && e.atkTimer <= 0 && !locked) {
           this.damagePlayer(e.dmg);
           e.atkTimer = e.atkCooldown;
           e.atkAnim = 1;
@@ -1069,31 +1088,28 @@ export class Engine {
       }
     }
 
-    // boss spell system: phase transitions + cooldown + castLock
+    // boss shield-break system: break window + spell casting (only when shielded)
     const boss = this.enemies.find((e) => e.isBoss);
-    if (boss && boss.spellPool.length > 0 && this.phase === "playing") {
-      // phase transition detection on HP thresholds
-      const hpRatio = boss.hp / boss.maxHp;
-      const newPhase: 1 | 2 | 3 = hpRatio > 0.66 ? 1 : hpRatio > 0.33 ? 2 : 3;
-      if (newPhase !== boss.phase) {
-        boss.phase = newPhase;
-        const def = BOSSES[this.bossKindOf(boss)];
-        boss.spellPool = def.spells.filter((s) => s.tier === newPhase);
-        const label = newPhase === 3 ? "ENRAGED!" : "PHASE " + newPhase + "!";
-        this.float(label, boss.x, boss.y - 40, "#ff3a1a");
-        this.spawnRing(boss.x, boss.y, "#ff3a1a", 60);
-        boss.hitFlash = 0.3;
-      }
-      // castLock tick (boss immobile during beam/eruption) — frozen pauses it
-      if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt;
-      // spell cooldown only ticks when not locked and not frozen
-      if (boss.castLock <= 0 && boss.frozen <= 0) {
-        this.bossSpellTimer -= dt;
-        if (this.bossSpellTimer <= 0) {
-          const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
-          boss.castAnim = 1;   // trigger spell cast windup animation
-          this.castBossSpell(boss, pick);
-          this.bossSpellTimer = pick.cooldown;
+    if (boss && this.phase === "playing") {
+      if (boss.phaseFlash > 0) boss.phaseFlash -= dt;
+
+      if (boss.bossState === "broken") {
+        // vulnerability window — boss is stunned, no spells. Frozen pauses the timer.
+        if (boss.frozen <= 0) {
+          boss.breakTimer -= dt;
+          if (boss.breakTimer <= 0) this.endBreak(boss);
+        }
+      } else if (boss.spellPool.length > 0) {
+        // shielded — normal spell behaviour
+        if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt;
+        if (boss.castLock <= 0 && boss.frozen <= 0) {
+          this.bossSpellTimer -= dt;
+          if (this.bossSpellTimer <= 0) {
+            const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
+            boss.castAnim = 1;   // trigger spell cast windup animation
+            this.castBossSpell(boss, pick);
+            this.bossSpellTimer = pick.cooldown;
+          }
         }
       }
     }
@@ -1715,12 +1731,77 @@ export class Engine {
   private damageEnemy(e: Enemy, dmg: number) {
     const crit = this.bonusCrit > 0 && Math.random() < this.bonusCrit;
     let d = Math.round(dmg * rand(0.9, 1.1) * (crit ? 2 : 1));
+
+    // boss shield-break routing
+    if (e.isBoss) {
+      if (e.bossState === "shielded") {
+        // all damage chips the shield; HP is locked. Overflow is discarded.
+        e.shield -= d;
+        e.hitFlash = 0.12;
+        this.float("\u25c6" + d, e.x, e.y - e.size * 0.4, "#6ad7ff");
+        if (e.shield <= 0) {
+          e.shield = 0;
+          this.breakShield(e);
+        }
+        return;
+      }
+      // broken: amplified HP damage during the vulnerability window
+      d = Math.round(d * BREAK_DMG_AMP);
+      e.hp -= d;
+      e.hitFlash = 0.12;
+      this.float(d + "!", e.x, e.y - e.size * 0.4, "#ff8a3a");
+      if (e.hp <= 0) {
+        this.killEnemy(e);
+        return;
+      }
+      this.checkBossPhaseCross(e);
+      return;
+    }
+
     e.hp -= d;
     e.hitFlash = 0.12;
     if (crit) this.float(d + "!", e.x, e.y - e.size * 0.4, "#ffce3a");
     else this.float("" + d, e.x, e.y - e.size * 0.4, "#fff");
     if (e.hp <= 0) {
       this.killEnemy(e);
+    }
+  }
+
+  // shield depleted → enter broken state (stunned, vulnerable, no spells)
+  private breakShield(boss: Enemy) {
+    boss.bossState = "broken";
+    boss.breakTimer = BREAK_WINDOW;
+    boss.castLock = 0;
+    boss.castAnim = 0;
+    boss.phaseFlash = 0.6;
+    this.bossSpellTimer = 999;   // stop casting while broken
+    this.float("SHIELD BREAK!", boss.x, boss.y - 42, "#6ad7ff");
+    this.spawnRing(boss.x, boss.y, "#6ad7ff", 72);
+  }
+
+  // break window ended (timer or phase cross) → restore shield, resume
+  private endBreak(boss: Enemy) {
+    boss.bossState = "shielded";
+    boss.shield = boss.shieldMax;
+    boss.breakTimer = 0;
+    this.bossSpellTimer = this.pickBossCooldown(boss.spellPool);
+    this.float("SHIELD UP", boss.x, boss.y - 42, "#6ad7ff");
+    this.spawnRing(boss.x, boss.y, "#6ad7ff", 56);
+  }
+
+  // during break window, HP can cross a phase threshold (66% / 33%)
+  private checkBossPhaseCross(boss: Enemy) {
+    const ratio = boss.hp / boss.maxHp;
+    const newPhase: 1 | 2 | 3 = ratio > 0.66 ? 1 : ratio > 0.33 ? 2 : 3;
+    if (newPhase !== boss.phase) {
+      boss.phase = newPhase;
+      const def = BOSSES[this.bossKindOf(boss)];
+      boss.spellPool = def.spells.filter((s) => s.tier === newPhase);
+      this.float(newPhase === 3 ? "ENRAGED!" : "PHASE " + newPhase + "!", boss.x, boss.y - 56, "#ff3a1a");
+      this.spawnRing(boss.x, boss.y, "#ff3a1a", 64);
+      boss.phaseFlash = 0.8;
+      // phase advance ends the break window immediately and restores shield
+      this.endBreak(boss);
     }
   }
 
@@ -2334,17 +2415,38 @@ export class Engine {
         oy -= 3 * Math.sin(k * Math.PI);
       }
     }
+    const broken = e.bossState === "broken";
+    if (broken) {
+      // stagger shake while stunned
+      ox += Math.sin(performance.now() / 40) * 2;
+      oy += 1;
+    }
     ctx.save();
     ctx.translate(cx + ox, cy + oy);
     ctx.scale(sx, sy);
     ctx.translate(-cx, -cy);
-    // hitFlash / frozen overlays (same as regular enemies)
     drawSprite(ctx, e.spriteKey, e.sprite,
       Math.round(cx - size / 2), Math.round(cy - size / 2), size, e.faceLeft);
-    if (e.hitFlash > 0) {
+    if (e.phaseFlash > 0) {
+      // bright flash on break / phase change
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = Math.min(1, e.phaseFlash);
+      ctx.fillStyle = e.bossState === "broken" ? "#6ad7ff" : "#ff5a5a";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    } else if (e.hitFlash > 0) {
       ctx.globalCompositeOperation = "source-atop";
       ctx.globalAlpha = 0.7;
       ctx.fillStyle = "#ffffff";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    } else if (broken) {
+      // washed-out grey while vulnerable
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#3a3a44";
       ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1;
@@ -2357,8 +2459,53 @@ export class Engine {
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+    // shield bubble around boss while shielded
+    if (e.bossState === "shielded" && e.shieldMax > 0) {
+      this.drawShieldBubble(e, cx, cy, size);
+    }
+    // "stars" stun indicator while broken
+    if (broken) {
+      ctx.save();
+      const n = 3;
+      for (let i = 0; i < n; i++) {
+        const a = performance.now() / 200 + (i / n) * Math.PI * 2;
+        const sxp = cx + Math.cos(a) * size * 0.35;
+        const syp = cy - size * 0.55 + Math.sin(a) * 3;
+        ctx.fillStyle = "#ffd24a";
+        ctx.font = "8px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("\u2726", sxp, syp);
+      }
+      ctx.restore();
+    }
     // per-boss cast FX overlay (drawn untransformed so glows don't clip)
     this.drawBossCastFx(e, kind, cx, cy, size);
+  }
+
+  // translucent shield bubble; alpha + thickness scale with remaining shield
+  private drawShieldBubble(e: Enemy, cx: number, cy: number, size: number) {
+    const ctx = this.ctx;
+    const frac = Math.max(0, e.shield / e.shieldMax);
+    if (frac <= 0) return;
+    const r = size * 0.7;
+    const pulse = 0.5 + 0.2 * Math.sin(performance.now() / 220);
+    ctx.save();
+    // fill
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+    grad.addColorStop(0, "rgba(106,215,255,0)");
+    grad.addColorStop(1, `rgba(106,215,255,${0.18 * frac * pulse})`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    // ring (thickness scales with shield)
+    ctx.globalAlpha = 0.5 + 0.4 * frac;
+    ctx.strokeStyle = "#6ad7ff";
+    ctx.lineWidth = 1 + 1.5 * frac;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // spell cast windup visual per boss kind
@@ -2519,6 +2666,11 @@ export class Engine {
       bossName,
       bossHp: boss ? Math.max(0, Math.round(boss.hp)) : undefined,
       bossMax: boss ? boss.maxHp : undefined,
+      bossShield: boss ? Math.max(0, Math.round(boss.shield)) : undefined,
+      bossShieldMax: boss ? boss.shieldMax : undefined,
+      bossPhase: boss ? boss.phase : undefined,
+      bossBroken: boss ? boss.bossState === "broken" : undefined,
+      bossBreakTimer: boss && boss.bossState === "broken" ? Math.max(0, boss.breakTimer) : undefined,
       goldGained: this.goldGained,
       xpGained: this.xpGained,
       monstersKilled: this.monstersKilled,
