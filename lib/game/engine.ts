@@ -125,6 +125,8 @@ interface Enemy {
   phase: 1 | 2 | 3;            // current boss phase
   spellPool: BossSpell[];      // cached spells for current phase
   castLock: number;            // boss immobile while > 0
+  atkAnim: number;             // 0..1 basic-attack swing progress (1=just started)
+  castAnim: number;            // 0..1 spell cast windup progress (1=just started)
 }
 
 interface FloatText { x: number; y: number; text: string; life: number; color: string; }
@@ -419,7 +421,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: def.gold, xp: def.xp,
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
     });
   }
 
@@ -437,7 +439,7 @@ export class Engine {
       sprite: bossSprites[def.kind], spriteKey: "b_" + def.kind,
       gold: def.gold, xp: def.xp,
       isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
-      phase: 1, spellPool: pool, castLock: 0,
+      phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
     });
     this.bossSpellTimer = this.pickBossCooldown(pool);
   }
@@ -472,7 +474,7 @@ export class Engine {
           sprite: bossSprites[def.kind], spriteKey: "b_" + def.kind,
           gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
           isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
-          phase: 1, spellPool: pool, castLock: 0,
+          phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
         });
         this.bossSpellTimer = this.pickBossCooldown(pool);
         this.float("BOSS WAVE!", VIEW_W / 2, VIEW_H / 2 - 30, "#ff3a1a");
@@ -505,7 +507,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
     });
   }
 
@@ -523,7 +525,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * 0.3), xp: Math.round(def.xp * 0.3),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
     });
   }
   private loop = (now: number) => {
@@ -1021,6 +1023,7 @@ export class Engine {
         if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0) {
           this.enemyFire(e);
           e.atkTimer = e.atkCooldown;
+          e.atkAnim = 1;
         }
       } else {
         // chase
@@ -1033,8 +1036,13 @@ export class Engine {
         if (d < e.size * 0.4 + 10 && e.atkTimer <= 0) {
           this.damagePlayer(e.dmg);
           e.atkTimer = e.atkCooldown;
+          e.atkAnim = 1;
         }
       }
+      // tick attack animation (0.3s swing)
+      if (e.atkAnim > 0) e.atkAnim = Math.max(0, e.atkAnim - dt / 0.3);
+      // tick spell cast windup animation (0.5s)
+      if (e.castAnim > 0) e.castAnim = Math.max(0, e.castAnim - dt / 0.5);
       e.x = clamp(e.x, FIELD.x + 6, FIELD.x + FIELD.w - 6);
       e.y = clamp(e.y, FIELD.y + 6, FIELD.y + FIELD.h - 6);
     }
@@ -1075,6 +1083,7 @@ export class Engine {
         this.bossSpellTimer -= dt;
         if (this.bossSpellTimer <= 0) {
           const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
+          boss.castAnim = 1;   // trigger spell cast windup animation
           this.castBossSpell(boss, pick);
           this.bossSpellTimer = pick.cooldown;
         }
@@ -2240,7 +2249,9 @@ export class Engine {
     const ctx = this.ctx;
     const bob = Math.sin(e.bob) * 1.2;
     this.drawShadow(e.x, e.y + e.size * 0.42, e.size);
-    if (e.hitFlash > 0) {
+    if (e.isBoss) {
+      this.drawBoss(e, bob);
+    } else if (e.hitFlash > 0) {
       ctx.save();
       drawSprite(ctx, e.spriteKey, e.sprite,
         Math.round(e.x - e.size / 2), Math.round(e.y - e.size / 2 + bob), e.size, e.faceLeft);
@@ -2271,6 +2282,155 @@ export class Engine {
       ctx.fillStyle = "#5fd35f";
       ctx.fillRect(x, y, w * (e.hp / e.maxHp), 2);
     }
+  }
+
+  // Boss render with per-kind attack + spell-cast animations.
+  // atkAnim: 1→0 over 0.3s (basic attack swing). castAnim: 1→0 over 0.5s (spell windup).
+  private drawBoss(e: Enemy, bob: number) {
+    const ctx = this.ctx;
+    const kind = e.spriteKey.replace("b_", "") as BossKind;
+    const cx = e.x, cy = e.y + bob;
+    const size = e.size;
+    // animation deltas
+    let sx = 1, sy = 1, ox = 0, oy = 0;
+    if (e.castAnim > 0) {
+      const k = e.castAnim; // 1 → 0
+      if (kind === "giant_slime") {
+        // squash down to charge, then pop
+        sy = 1 - 0.3 * k; sx = 1 + 0.3 * k; oy = 4 * k;
+      } else if (kind === "spider_queen") {
+        // rear back, legs splay
+        sy = 1 + 0.15 * k; sx = 1 + 0.2 * k; oy = -4 * k;
+      } else if (kind === "lich") {
+        // lean back, charge staff
+        oy = -2 * k; sx = 1 + 0.05 * k;
+      } else if (kind === "lava_golem") {
+        // grow, glow core
+        sx = 1 + 0.12 * k; sy = 1 + 0.12 * k;
+      }
+    }
+    if (e.atkAnim > 0) {
+      const k = e.atkAnim;
+      if (kind === "giant_slime") {
+        oy -= 3 * Math.sin(k * Math.PI);
+      } else if (kind === "spider_queen") {
+        // lunge toward player
+        const dir = e.faceLeft ? -1 : 1;
+        ox += dir * 4 * Math.sin(k * Math.PI);
+      } else if (kind === "lich") {
+        const dir = e.faceLeft ? -1 : 1;
+        ox += dir * 3 * Math.sin(k * Math.PI);
+      } else if (kind === "lava_golem") {
+        oy -= 3 * Math.sin(k * Math.PI);
+      }
+    }
+    ctx.save();
+    ctx.translate(cx + ox, cy + oy);
+    ctx.scale(sx, sy);
+    ctx.translate(-cx, -cy);
+    // hitFlash / frozen overlays (same as regular enemies)
+    drawSprite(ctx, e.spriteKey, e.sprite,
+      Math.round(cx - size / 2), Math.round(cy - size / 2), size, e.faceLeft);
+    if (e.hitFlash > 0) {
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    } else if (e.frozen > 0) {
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "rgba(122,215,255,1)";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+    // per-boss cast FX overlay (drawn untransformed so glows don't clip)
+    this.drawBossCastFx(e, kind, cx, cy, size);
+  }
+
+  // spell cast windup visual per boss kind
+  private drawBossCastFx(e: Enemy, kind: BossKind, cx: number, cy: number, size: number) {
+    if (e.castAnim <= 0) return;
+    const ctx = this.ctx;
+    const k = e.castAnim; // 1 → 0
+    ctx.save();
+    if (kind === "giant_slime") {
+      // green charge glow building up at body center
+      const r = size * 0.5 * (1 - k * 0.4);
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, "rgba(95,204,95," + (0.6 * k) + ")");
+      grad.addColorStop(1, "rgba(95,204,95,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === "spider_queen") {
+      // white web orb at mouth pulsing
+      const r = 4 + (1 - k) * 4;
+      ctx.globalAlpha = k;
+      ctx.fillStyle = "#dfe3e8";
+      ctx.beginPath();
+      ctx.arc(cx, cy - size * 0.3, r, 0, Math.PI * 2);
+      ctx.fill();
+      // silk strands
+      ctx.strokeStyle = "rgba(232,232,240," + k + ")";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - size * 0.3);
+        ctx.lineTo(cx + Math.cos(a) * r * 2, cy - size * 0.3 + Math.sin(a) * r * 2);
+        ctx.stroke();
+      }
+    } else if (kind === "lich") {
+      // purple staff orb above head, growing + swirling
+      const r = 5 + (1 - k) * 5;
+      const ox = e.faceLeft ? -size * 0.3 : size * 0.3;
+      const oy = -size * 0.45;
+      ctx.globalAlpha = k;
+      const grad = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r * 2);
+      grad.addColorStop(0, "rgba(255,255,255," + k + ")");
+      grad.addColorStop(0.4, "rgba(160,108,255," + (0.8 * k) + ")");
+      grad.addColorStop(1, "rgba(160,108,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx + ox, cy + oy, r * 2, 0, Math.PI * 2);
+      ctx.fill();
+      // orbiting sparks
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + performance.now() / 200;
+        ctx.fillStyle = "#c8b8e8";
+        ctx.beginPath();
+        ctx.arc(cx + ox + Math.cos(a) * r * 1.4, cy + oy + Math.sin(a) * r * 1.4, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (kind === "lava_golem") {
+      // red-hot core glow building inside body
+      const r = size * 0.35 * (1 - k * 0.3);
+      ctx.globalCompositeOperation = "source-atop";
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, "rgba(255,210,74," + (0.8 * k) + ")");
+      grad.addColorStop(0.5, "rgba(255,58,42," + (0.6 * k) + ")");
+      grad.addColorStop(1, "rgba(255,58,42,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+      // ember particles rising
+      if (Math.random() < 0.5) {
+        this.particles.push({
+          x: cx + rand(-size * 0.3, size * 0.3),
+          y: cy + rand(-size * 0.2, size * 0.2),
+          vx: rand(-15, 15), vy: rand(-40, -20),
+          life: 0.4, color: "#ff6a2a",
+        });
+      }
+    }
+    ctx.restore();
   }
 
   private banner(title: string, sub: string) {
