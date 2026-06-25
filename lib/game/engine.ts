@@ -1230,11 +1230,70 @@ export class Engine {
         break;
       }
       // ----- lich family (Stage D) -----
-      case "deathBeam":
-      case "boneRing":
-      case "raiseDead":
-        // implemented in Stage D
+      case "deathBeam": {
+        const beamCount = t === 1 ? 1 : t === 2 ? 2 : 1;
+        const sweep = t === 3 ? 1.2 : 0;
+        const tele = 1.2, active = 0.4;
+        for (let i = 0; i < beamCount; i++) {
+          let tx: number, ty: number;
+          if (i === 0) {
+            tx = this.px; ty = this.py;
+          } else {
+            const ang = Math.atan2(this.py - boss.y, this.px - boss.x) + rand(-0.8, 0.8);
+            const len = dist(boss.x, boss.y, this.px, this.py);
+            tx = boss.x + Math.cos(ang) * len;
+            ty = boss.y + Math.sin(ang) * len;
+          }
+          const baseAng = Math.atan2(ty - boss.y, tx - boss.x);
+          this.beams.push({
+            x1: boss.x, y1: boss.y, x2: tx, y2: ty,
+            telegraph: tele, telegraphMax: tele,
+            active: 0, activeMax: active,
+            dmgTick: 0, dmg: Math.round(boss.dmg * 1.5),
+            color: "#a06cff",
+            sweep, sweepAngle: 0, baseAngle: baseAng,
+          });
+        }
+        boss.castLock = tele + active;
+        this.float("DEATH BEAM!", boss.x, boss.y - 30, "#a06cff");
         break;
+      }
+      case "boneRing": {
+        const count = t === 1 ? 8 : t === 2 ? 16 : 24;
+        // tier 3: spiral — fire in rotating offset batches over time via staggered life
+        const baseAng = rand(0, Math.PI * 2);
+        for (let i = 0; i < count; i++) {
+          const ang = baseAng + (i / count) * Math.PI * 2 + (t === 3 ? Math.sin(i * 0.5) * 0.3 : 0);
+          this.projectiles.push({
+            x: boss.x, y: boss.y,
+            vx: Math.cos(ang) * 200, vy: Math.sin(ang) * 200,
+            dmg: Math.round(boss.dmg * 0.7),
+            from: "enemy", kind: "bolt", life: 2.5, radius: 4,
+            tint: "#c8b8e8",
+          });
+        }
+        this.float("BONE RING!", boss.x, boss.y - 30, "#c8b8e8");
+        break;
+      }
+      case "raiseDead": {
+        const skel = t === 1 ? 2 : t === 2 ? 3 : 4;
+        const ghosts = t === 1 ? 0 : t === 2 ? 1 : 2;
+        for (let i = 0; i < skel; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 60);
+          this.spawnMini("skeleton", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.1), Math.round(boss.dmg * 0.5), 16);
+        }
+        for (let i = 0; i < ghosts; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 60);
+          this.spawnMini("ghost", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.08), Math.round(boss.dmg * 0.4), 16);
+        }
+        this.spawnRing(boss.x, boss.y, "#a06cff", 40);
+        this.float("RAISE DEAD!", boss.x, boss.y - 30, "#a06cff");
+        break;
+      }
       // ----- lava pools/eruption (Stage E) -----
       case "lavaPool":
       case "eruption":
@@ -1267,8 +1326,34 @@ export class Engine {
   }
 
   private updateBeams(dt: number) {
-    // implemented in Stage D
-    void dt;
+    for (const b of this.beams) {
+      // sweep: rotate endpoint around boss for tier 3
+      if (b.sweep && b.sweep !== 0 && b.baseAngle !== undefined) {
+        const activePhase = b.telegraph <= 0;
+        if (activePhase) b.sweepAngle = (b.sweepAngle || 0) + b.sweep * dt;
+        const ang = b.baseAngle + (b.sweepAngle || 0);
+        const len = dist(b.x1, b.y1, b.x2, b.y2);
+        b.x2 = b.x1 + Math.cos(ang) * len;
+        b.y2 = b.y1 + Math.sin(ang) * len;
+      }
+      if (b.telegraph > 0) {
+        b.telegraph -= dt;
+        if (b.telegraph <= 0) {
+          b.active = b.activeMax;
+        }
+      } else if (b.active > 0) {
+        b.active -= dt;
+        // dmg tick every 0.25s along segment
+        b.dmgTick += dt;
+        if (b.dmgTick >= 0.25) {
+          b.dmgTick = 0;
+          if (this.distToSegment(this.px, this.py, b.x1, b.y1, b.x2, b.y2) < 14) {
+            this.damagePlayer(Math.round(b.dmg * 0.25));
+          }
+        }
+      }
+    }
+    this.beams = this.beams.filter((b) => b.telegraph > 0 || b.active > 0);
   }
 
   private updatePools(dt: number) {
@@ -1403,8 +1488,45 @@ export class Engine {
   }
 
   private drawBeams(ctx: CanvasRenderingContext2D) {
-    // implemented in Stage D
-    void ctx;
+    const now = performance.now();
+    for (const b of this.beams) {
+      ctx.save();
+      if (b.telegraph > 0) {
+        // telegraph: thin dashed line, pulsing
+        const pulse = 0.5 + 0.3 * Math.sin(now / 60);
+        ctx.globalAlpha = 0.7 * pulse;
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (b.active > 0) {
+        // active beam: thick gradient line + glow
+        const k = b.active / b.activeMax;  // 1 → 0
+        ctx.globalAlpha = k;
+        // outer glow
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = b.color;
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 14;
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+        // core white-hot
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   private drawPools(ctx: CanvasRenderingContext2D) {
