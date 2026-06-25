@@ -131,6 +131,10 @@ export class TownEngine {
   private roadPattern?: CanvasPattern;
   private nearby: NpcDef | null = null;
   private prevInteract = false;
+  private transitionState: "none" | "fade-out" | "fade-in" = "none";
+  private transitionTimer = 0;
+  private transitionTarget: string | null = null;
+  private transitionSpawn: { x: number; y: number } | null = null;
 
   private cb: TownCallbacks;
 
@@ -200,6 +204,43 @@ export class TownEngine {
   // Called by React to trigger interaction with the nearby NPC (e.g. click).
   interactNearby() {
     if (this.nearby) this.cb.onInteract(this.nearby);
+  }
+
+  transitionTo(mapId: string, fromEdge: "left" | "right") {
+    if (this.transitionState !== "none") return;
+    const target = this.maps[mapId];
+    if (!target) return;
+    this.transitionTarget = mapId;
+    this.transitionState = "fade-out";
+    this.transitionTimer = 0;
+    // spawn on the opposite edge of the new map
+    this.transitionSpawn = fromEdge === "left"
+      ? { x: target.worldW - 30, y: target.spawnY }   // entered new map via its left edge → spawn at right
+      : { x: 30, y: target.spawnY };                   // entered new map via its right edge → spawn at left
+  }
+
+  private updateTransition(dt: number) {
+    if (this.transitionState === "none") return;
+    const FADE = 0.3;
+    this.transitionTimer += dt;
+    if (this.transitionState === "fade-out" && this.transitionTimer >= FADE) {
+      // swap map + reposition player
+      const id = this.transitionTarget!;
+      this.currentMap = this.maps[id];
+      this.currentMapId = id;
+      const sp = this.transitionSpawn!;
+      this.px = sp.x;
+      this.py = sp.y;
+      this.nearby = null;
+      this.prevInteract = false;
+      this.transitionState = "fade-in";
+      this.transitionTimer = 0;
+    } else if (this.transitionState === "fade-in" && this.transitionTimer >= FADE) {
+      this.transitionState = "none";
+      this.transitionTimer = 0;
+      this.transitionTarget = null;
+      this.transitionSpawn = null;
+    }
   }
 
   private buildTownMap(): TownMap {
@@ -492,6 +533,10 @@ export class TownEngine {
   };
 
   private update(dt: number) {
+    if (this.transitionState !== "none") {
+      this.updateTransition(dt);
+      return;
+    }
     let mx = 0, my = 0;
     if (this.input.pressed("a", "arrowleft")) mx -= 1;
     if (this.input.pressed("d", "arrowright")) mx += 1;
@@ -511,13 +556,25 @@ export class TownEngine {
       this.facing = facingFromVec(mx, my, this.facing);
     }
     this.animTime += dt;
-    // bounds (walkable world area)
-    this.px = clamp(this.px, 14, WORLD_W - 14);
-    this.py = clamp(this.py, 40, WORLD_H - 14);
+    // bounds + edge-exit detection
+    const W = this.currentMap.worldW;
+    const H = this.currentMap.worldH;
+    const ex = this.currentMap.exits;
+    if (this.px <= 0 && ex.left) {
+      this.transitionTo(ex.left, "left");
+      return;
+    }
+    if (this.px >= W && ex.right) {
+      this.transitionTo(ex.right, "right");
+      return;
+    }
+    // no exit on that edge → hard clamp
+    this.px = clamp(this.px, 14, W - 14);
+    this.py = clamp(this.py, 40, H - 14);
 
     // camera follows player, clamped to world edges
-    this.camX = clamp(this.px - this.viewW / 2, 0, Math.max(0, WORLD_W - this.viewW));
-    this.camY = clamp(this.py - this.viewH / 2, 0, Math.max(0, WORLD_H - this.viewH));
+    this.camX = clamp(this.px - this.viewW / 2, 0, Math.max(0, this.currentMap.worldW - this.viewW));
+    this.camY = clamp(this.py - this.viewH / 2, 0, Math.max(0, this.currentMap.worldH - this.viewH));
 
     // wanderer AI — pick a new direction periodically, stroll, pause, repeat
     for (const n of this.currentMap.npcs) {
@@ -546,8 +603,8 @@ export class TownEngine {
         const dHome = Math.hypot(nx - w.homeX, ny - w.homeY);
         const blockedByBuilding = this.blocked(nx, ny);
         const inBounds =
-          nx > 14 && nx < WORLD_W - 14 &&
-          ny > 44 && ny < WORLD_H - 18 &&
+          nx > 14 && nx < this.currentMap.worldW - 14 &&
+          ny > 44 && ny < this.currentMap.worldH - 18 &&
           dHome < w.radius;
         if (inBounds && !blockedByBuilding) {
           n.x = nx; n.y = ny;
