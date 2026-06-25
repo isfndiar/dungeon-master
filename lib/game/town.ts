@@ -673,11 +673,11 @@ export class TownEngine {
     const W = this.currentMap.worldW;
     const H = this.currentMap.worldH;
     const ex = this.currentMap.exits;
-    if (this.px <= 0 && ex.left) {
+    if (ex.left && this.px <= 14) {
       this.transitionTo(ex.left, "left");
       return;
     }
-    if (this.px >= W && ex.right) {
+    if (ex.right && this.px >= W - 14) {
       this.transitionTo(ex.right, "right");
       return;
     }
