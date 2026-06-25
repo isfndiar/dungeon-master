@@ -1040,9 +1040,9 @@ export class Engine {
         }
       }
       // tick attack animation (0.3s swing)
-      if (e.atkAnim > 0) e.atkAnim = Math.max(0, e.atkAnim - dt / 0.3);
-      // tick spell cast windup animation (0.5s)
-      if (e.castAnim > 0) e.castAnim = Math.max(0, e.castAnim - dt / 0.5);
+      if (e.atkAnim > 0) e.atkAnim = Math.max(0, e.atkAnim - dt / 0.25);
+      // tick spell cast windup animation (0.3s — snappy telegraph)
+      if (e.castAnim > 0) e.castAnim = Math.max(0, e.castAnim - dt / 0.3);
       e.x = clamp(e.x, FIELD.x + 6, FIELD.x + FIELD.w - 6);
       e.y = clamp(e.y, FIELD.y + 6, FIELD.y + FIELD.h - 6);
     }
@@ -1101,13 +1101,13 @@ export class Engine {
       // ----- lava family -----
       case "meteor": {
         const count = t === 1 ? 4 : t === 2 ? 6 : 8;
-        const teleBase = t === 3 ? 0.5 : 0.8;
+        const teleBase = t === 3 ? 0.25 : 0.35;
         for (let i = 0; i < count; i++) {
           const ang = rand(0, Math.PI * 2);
           const off = rand(20, 80);
           const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
           const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
-          const tele = teleBase + i * 0.4;
+          const tele = teleBase + i * 0.2;
           this.hazards.push({
             x: tx, y: ty, radius: 50,
             telegraph: tele, telegraphMax: tele,
@@ -1145,7 +1145,7 @@ export class Engine {
             dmgPerSec: Math.round(boss.dmg * 0.4),
             slow: 0.5, slowTime: 2, snare: false, snareTime: 0,
             color: "#5fcc5f", kind: "slime",
-            tickAcc: 0, spawnTelegraph: 0.4,
+            tickAcc: 0, spawnTelegraph: 0.25,
           });
         }
         this.float("SLIME POOL!", boss.x, boss.y - 30, "#5fcc5f");
@@ -1161,7 +1161,7 @@ export class Engine {
           const ang = rand(0, Math.PI * 2);
           const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
           const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
-          const tele = 0.7 + i * 0.4;
+          const tele = 0.4 + i * 0.25;
           this.hazards.push({
             x: tx, y: ty, radius,
             telegraph: tele, telegraphMax: tele,
@@ -1171,7 +1171,7 @@ export class Engine {
             knockback: knock,
           });
         }
-        boss.castLock = 0.7 + slams * 0.4;
+        boss.castLock = 0.4 + slams * 0.25;
         this.float("BOUNCE SLAM!", boss.x, boss.y - 30, "#5fcc5f");
         break;
       }
@@ -1213,7 +1213,7 @@ export class Engine {
             dmgPerSec: 0,
             slow: 0, slowTime: 0, snare: true, snareTime: 1.5,
             color: "#e8e8f0", kind: "web",
-            tickAcc: 0, spawnTelegraph: 0.5,
+            tickAcc: 0, spawnTelegraph: 0.3,
           });
         }
         this.float("WEB TRAP!", boss.x, boss.y - 30, "#e8e8f0");
@@ -1242,7 +1242,7 @@ export class Engine {
       case "deathBeam": {
         const beamCount = t === 1 ? 1 : t === 2 ? 2 : 1;
         const sweep = t === 3 ? 1.2 : 0;
-        const tele = 1.2, active = 0.4;
+        const tele = 0.5, active = 0.3;
         for (let i = 0; i < beamCount; i++) {
           let tx: number, ty: number;
           if (i === 0) {
@@ -1317,7 +1317,7 @@ export class Engine {
             dmgPerSec: Math.round(boss.dmg * 0.6),
             slow: 0.3, slowTime: 1, snare: false, snareTime: 0,
             color: "#ff6a2a", kind: "lava",
-            tickAcc: 0, spawnTelegraph: 0.5,
+            tickAcc: 0, spawnTelegraph: 0.3,
           });
         }
         this.float("LAVA POOL!", boss.x, boss.y - 30, "#ff6a2a");
@@ -1327,7 +1327,7 @@ export class Engine {
         const radius = t === 1 ? 60 : t === 2 ? 90 : 120;
         const knock = t === 1 ? 0 : t === 2 ? 45 : 60;
         const leavePool = t === 3;
-        const tele = 0.7;
+        const tele = 0.4;
         this.hazards.push({
           x: boss.x, y: boss.y, radius,
           telegraph: tele, telegraphMax: tele,
@@ -1338,7 +1338,7 @@ export class Engine {
           leavePool,
           poolColor: "#ff6a2a",
         });
-        boss.castLock = 0.9;
+        boss.castLock = 0.5;
         this.float("ERUPTION!", boss.x, boss.y - 30, "#ff3a2a");
         break;
       }
