@@ -699,10 +699,9 @@ export class TownEngine {
       }
     } else {
       ctx.fillStyle = "#9a8f7a";
-      ctx.fillRect(120, 340, 1040, 230);
-      ctx.fillRect(460, 200, 360, 140);
-      ctx.fillRect(1100, 340, 180, 230);
-      ctx.fillRect(0, 400, 120, 120);
+      for (const p of this.currentMap.plazas) {
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+      }
     }
 
     // buildings + entities interleaved by Y for depth sorting
