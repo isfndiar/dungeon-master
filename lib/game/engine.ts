@@ -22,6 +22,11 @@ export const VIEW_W = 480;
 export const VIEW_H = 270;
 const RENDER_SCALE = 2;
 
+// boss shield-break tunables
+const SHIELD_FRAC = 0.4;       // shield value = 40% of max HP per restore
+const BREAK_WINDOW = 5;        // seconds boss stays broken (vulnerable)
+const BREAK_DMG_AMP = 1.5;     // HP damage multiplier during break window
+
 // Play field inset (walls border)
 const WALL = 16;
 const FIELD = { x: WALL, y: WALL, w: VIEW_W - WALL * 2, h: VIEW_H - WALL * 2 };
@@ -127,6 +132,12 @@ interface Enemy {
   castLock: number;            // boss immobile while > 0
   atkAnim: number;             // 0..1 basic-attack swing progress (1=just started)
   castAnim: number;            // 0..1 spell cast windup progress (1=just started)
+  // shield-break system (boss only)
+  bossState: "shielded" | "broken";
+  shield: number;              // current shield value (blocks HP damage)
+  shieldMax: number;           // shield value on each restore
+  breakTimer: number;          // countdown of break window while broken
+  phaseFlash: number;          // 0..1 visual flash on break/phase change
 }
 
 interface FloatText { x: number; y: number; text: string; life: number; color: string; }
@@ -179,6 +190,8 @@ export interface HudState {
   dungeonName: string;
   minimap: MiniMap;
   bossName?: string; bossHp?: number; bossMax?: number;
+  bossShield?: number; bossShieldMax?: number;
+  bossPhase?: 1 | 2 | 3; bossBroken?: boolean; bossBreakTimer?: number;
   goldGained: number; xpGained: number;
   monstersKilled: number;
   isEndless?: boolean;
@@ -429,7 +442,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: def.gold, xp: def.xp,
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
     });
   }
 
@@ -437,9 +450,11 @@ export class Engine {
     const def: BossDef = BOSSES[this.dungeon.boss];
     const d = this.difficulty;
     const pool = def.spells.filter((s) => s.tier === 1);
+    const maxHp = Math.round(def.hp * d);
+    const shieldMax = Math.round(maxHp * SHIELD_FRAC);
     this.enemies.push({
       x: VIEW_W / 2, y: FIELD.y + 40,
-      hp: Math.round(def.hp * d), maxHp: Math.round(def.hp * d),
+      hp: maxHp, maxHp,
       dmg: Math.round(def.dmg * d), speed: def.speed,
       ranged: def.ranged, projectile: def.projectile,
       atkTimer: 1, atkCooldown: def.attackCooldown,
@@ -448,6 +463,7 @@ export class Engine {
       gold: def.gold, xp: def.xp,
       isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
       phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
+      bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0,
     });
     this.bossSpellTimer = this.pickBossCooldown(pool);
   }
@@ -472,6 +488,7 @@ export class Engine {
         const def: BossDef = BOSSES[bossKind];
         const bossHp = Math.round(def.hp * diff * 1.5);
         const pool = def.spells.filter((s) => s.tier === 1);
+        const shieldMax = Math.round(bossHp * SHIELD_FRAC);
         this.enemies.push({
           x: VIEW_W / 2, y: FIELD.y + 40,
           hp: bossHp, maxHp: bossHp,
@@ -483,6 +500,7 @@ export class Engine {
           gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
           isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
           phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
+          bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0,
         });
         this.bossSpellTimer = this.pickBossCooldown(pool);
         this.float("BOSS WAVE!", VIEW_W / 2, VIEW_H / 2 - 30, "#ff3a1a");
@@ -515,7 +533,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
     });
   }
 
@@ -533,7 +551,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * 0.3), xp: Math.round(def.xp * 0.3),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
     });
   }
   private loop = (now: number) => {
@@ -1009,11 +1027,15 @@ export class Engine {
       e.bob += dt * 6;
       if (e.hitFlash > 0) e.hitFlash -= dt;
       if (e.frozen > 0) e.frozen -= dt;
-      const slow = e.frozen > 0 ? 0.25 : 1; // frozen enemies crawl
+      const frozenSlow = e.frozen > 0 ? 0.25 : 1; // frozen enemies crawl
+      // phase 3 boss = enraged: moves & basic-attacks faster
+      const enrage = e.isBoss && e.phase === 3 ? 1.5 : 1;
+      const slow = frozenSlow * enrage;
       const dx = this.px - e.x, dy = this.py - e.y;
       const d = Math.hypot(dx, dy) || 1;
       e.faceLeft = dx < 0;
-      const locked = e.isBoss && e.castLock > 0; // boss immobile during castLock
+      // boss immobile during castLock or while broken (stunned, vulnerable)
+      const locked = e.isBoss && (e.castLock > 0 || e.bossState === "broken");
 
       const desired = e.ranged ? 110 : 0;
       if (e.ranged) {
@@ -1027,8 +1049,8 @@ export class Engine {
             e.y += (dy / d) * e.speed * slow * dt;
           }
         }
-        e.atkTimer -= dt;
-        if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0) {
+        e.atkTimer -= dt * enrage;
+        if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0 && !locked) {
           this.enemyFire(e);
           e.atkTimer = e.atkCooldown;
           e.atkAnim = 1;
@@ -1040,8 +1062,8 @@ export class Engine {
           e.y += (dy / d) * e.speed * slow * dt;
         }
         // contact damage
-        e.atkTimer -= dt;
-        if (d < e.size * 0.4 + 10 && e.atkTimer <= 0) {
+        e.atkTimer -= dt * enrage;
+        if (d < e.size * 0.4 + 10 && e.atkTimer <= 0 && !locked) {
           this.damagePlayer(e.dmg);
           e.atkTimer = e.atkCooldown;
           e.atkAnim = 1;
@@ -1069,31 +1091,32 @@ export class Engine {
       }
     }
 
-    // boss spell system: phase transitions + cooldown + castLock
+    // boss shield-break system: break window + spell casting (only when shielded)
     const boss = this.enemies.find((e) => e.isBoss);
-    if (boss && boss.spellPool.length > 0 && this.phase === "playing") {
-      // phase transition detection on HP thresholds
-      const hpRatio = boss.hp / boss.maxHp;
-      const newPhase: 1 | 2 | 3 = hpRatio > 0.66 ? 1 : hpRatio > 0.33 ? 2 : 3;
-      if (newPhase !== boss.phase) {
-        boss.phase = newPhase;
-        const def = BOSSES[this.bossKindOf(boss)];
-        boss.spellPool = def.spells.filter((s) => s.tier === newPhase);
-        const label = newPhase === 3 ? "ENRAGED!" : "PHASE " + newPhase + "!";
-        this.float(label, boss.x, boss.y - 40, "#ff3a1a");
-        this.spawnRing(boss.x, boss.y, "#ff3a1a", 60);
-        boss.hitFlash = 0.3;
-      }
-      // castLock tick (boss immobile during beam/eruption) — frozen pauses it
-      if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt;
-      // spell cooldown only ticks when not locked and not frozen
-      if (boss.castLock <= 0 && boss.frozen <= 0) {
-        this.bossSpellTimer -= dt;
-        if (this.bossSpellTimer <= 0) {
-          const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
-          boss.castAnim = 1;   // trigger spell cast windup animation
-          this.castBossSpell(boss, pick);
-          this.bossSpellTimer = pick.cooldown;
+    if (boss && this.phase === "playing") {
+      if (boss.phaseFlash > 0) boss.phaseFlash -= dt;
+
+      if (boss.bossState === "broken") {
+        // vulnerability window — boss is stunned, no spells. Frozen pauses the timer.
+        if (boss.frozen <= 0) {
+          boss.breakTimer -= dt;
+          if (boss.breakTimer <= 0) this.endBreak(boss);
+        }
+      } else if (boss.spellPool.length > 0) {
+        // phase 3 = enraged: spells tick faster and cast more often
+        const enraged = boss.phase === 3;
+        const timeScale = enraged ? 1.6 : 1;   // spell timer drains 60% faster
+        const cdScale = enraged ? 0.6 : 1;     // next-cast cooldown shortened
+        // shielded — normal spell behaviour
+        if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt * timeScale;
+        if (boss.castLock <= 0 && boss.frozen <= 0) {
+          this.bossSpellTimer -= dt * timeScale;
+          if (this.bossSpellTimer <= 0) {
+            const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
+            boss.castAnim = 1;   // trigger spell cast windup animation
+            this.castBossSpell(boss, pick);
+            this.bossSpellTimer = pick.cooldown * cdScale;
+          }
         }
       }
     }
@@ -1101,6 +1124,71 @@ export class Engine {
 
   private bossKindOf(boss: Enemy): BossKind {
     return boss.spriteKey.replace("b_", "") as BossKind;
+  }
+
+  // ---- spell building blocks (reused by many boss spells) ----
+
+  // fan/cone of bolts aimed toward the player
+  private spawnCone(boss: Enemy, count: number, spreadRad: number, speed: number, dmgMult: number, tint: string, kind: "bolt" | "fireball" = "bolt") {
+    const base = Math.atan2(this.py - boss.y, this.px - boss.x);
+    for (let i = 0; i < count; i++) {
+      const ang = base + (count > 1 ? (i - (count - 1) / 2) * (spreadRad / (count - 1)) : 0);
+      this.projectiles.push({
+        x: boss.x, y: boss.y,
+        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+        dmg: Math.round(boss.dmg * dmgMult),
+        from: "enemy", kind, life: 2.5, radius: 4, tint,
+      });
+    }
+  }
+
+  // full 360° ring of bolts
+  private spawnBoltRing(boss: Enemy, count: number, speed: number, dmgMult: number, tint: string, jitter = 0, kind: "bolt" | "fireball" = "bolt") {
+    const base = rand(0, Math.PI * 2);
+    for (let i = 0; i < count; i++) {
+      const ang = base + (i / count) * Math.PI * 2 + (jitter ? rand(-jitter, jitter) : 0);
+      this.projectiles.push({
+        x: boss.x, y: boss.y,
+        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+        dmg: Math.round(boss.dmg * dmgMult),
+        from: "enemy", kind, life: 2.6, radius: 4, tint,
+      });
+    }
+  }
+
+  // a persistent ground pool at a position
+  private spawnPoolAt(x: number, y: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web", telegraph: number) {
+    this.pools.push({
+      x: clamp(x, FIELD.x + 16, FIELD.x + FIELD.w - 16),
+      y: clamp(y, FIELD.y + 16, FIELD.y + FIELD.h - 16),
+      radius, time, timeMax: time, dmgPerSec,
+      slow, slowTime, snare, snareTime,
+      color, kind, tickAcc: 0, spawnTelegraph: telegraph,
+    });
+  }
+
+  // a telegraphed explosion AoE
+  private spawnExplosion(x: number, y: number, radius: number, telegraph: number, dmgMult: number, color: string, boss: Enemy, knockback = 0, leavePool = false, poolColor = "#ff6a2a") {
+    this.hazards.push({
+      x: clamp(x, FIELD.x + 16, FIELD.x + FIELD.w - 16),
+      y: clamp(y, FIELD.y + 16, FIELD.y + FIELD.h - 16),
+      radius, telegraph, telegraphMax: telegraph,
+      dmg: Math.round(boss.dmg * dmgMult),
+      color, exploded: false, fade: 0, kind: "eruption",
+      knockback, leavePool, poolColor,
+    });
+  }
+
+  // a line of pools forming a wall, perpendicular to boss→player, offset ahead of player
+  private spawnWall(boss: Enemy, segs: number, gap: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web") {
+    const toPlayer = Math.atan2(this.py - boss.y, this.px - boss.x);
+    const perp = toPlayer + Math.PI / 2;
+    for (let i = 0; i < segs; i++) {
+      const off = (i - (segs - 1) / 2) * gap;
+      const x = this.px + Math.cos(perp) * off;
+      const y = this.py + Math.sin(perp) * off;
+      this.spawnPoolAt(x, y, radius, time, dmgPerSec, slow, slowTime, snare, snareTime, color, kind, 0.4);
+    }
   }
 
   private castBossSpell(boss: Enemy, spell: BossSpell) {
@@ -1348,6 +1436,249 @@ export class Engine {
         });
         boss.castLock = 0.5;
         this.float("ERUPTION!", boss.x, boss.y - 30, "#ff3a2a");
+        break;
+      }
+
+      // ========== GIANT SLIME — phase 2 ==========
+      case "acidSpray": {
+        // wide cone of acid bolts toward player
+        this.spawnCone(boss, 7, Math.PI * 0.55, 170, 0.55, "#9be04a");
+        boss.castLock = 0.3;
+        this.float("ACID SPRAY!", boss.x, boss.y - 30, "#9be04a");
+        break;
+      }
+      case "slimeWall": {
+        // line of slow pools cutting across the player's lane
+        this.spawnWall(boss, 5, 30, 24, 5, Math.round(boss.dmg * 0.4), 0.5, 1.5, false, 0, "#5fcc5f", "slime");
+        this.float("SLIME WALL!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      case "doubleSlam": {
+        // two telegraphed slams: on player + ahead of player
+        this.spawnExplosion(this.px, this.py, 52, 0.45, 1.0, "#5fcc5f", boss, 40);
+        const a = Math.atan2(this.py - boss.y, this.px - boss.x);
+        this.spawnExplosion(this.px + Math.cos(a) * 60, this.py + Math.sin(a) * 60, 52, 0.7, 1.0, "#5fcc5f", boss, 40);
+        boss.castLock = 0.9;
+        this.float("DOUBLE SLAM!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+
+      // ========== GIANT SLIME — phase 3 ==========
+      case "toxicFlood": {
+        // arena flooded with many toxic pools
+        for (let i = 0; i < 6; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 110);
+          this.spawnPoolAt(this.px + Math.cos(ang) * off, this.py + Math.sin(ang) * off,
+            30, 6, Math.round(boss.dmg * 0.5), 0.4, 1.2, false, 0, "#7ad04a", "slime", 0.3);
+        }
+        this.float("TOXIC FLOOD!", boss.x, boss.y - 30, "#7ad04a");
+        break;
+      }
+      case "megaSplit": {
+        // few large, tankier slimes
+        for (let i = 0; i < 3; i++) {
+          const ang = (i / 3) * Math.PI * 2 + rand(-0.2, 0.2);
+          this.spawnMini("slime", boss.x + Math.cos(ang) * 36, boss.y + Math.sin(ang) * 36,
+            Math.round(boss.maxHp * 0.16), Math.round(boss.dmg * 0.6), 22);
+        }
+        this.spawnRing(boss.x, boss.y, "#5fcc5f", 48);
+        this.float("MEGA SPLIT!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      case "groundPound": {
+        // huge slam centered on the boss with knockback + lingering pool
+        this.spawnExplosion(boss.x, boss.y, 120, 0.6, 1.3, "#5fcc5f", boss, 70, true, "#7ad04a");
+        boss.castLock = 0.8;
+        this.float("GROUND POUND!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+
+      // ========== SPIDER QUEEN — phase 2 ==========
+      case "venomSpit": {
+        // tight cone of venom + leaves a small pool where it lands near player
+        this.spawnCone(boss, 5, Math.PI * 0.35, 200, 0.6, "#b06ad0");
+        this.spawnPoolAt(this.px, this.py, 22, 4, Math.round(boss.dmg * 0.4), 0.3, 1, false, 0, "#b06ad0", "slime", 0.4);
+        boss.castLock = 0.3;
+        this.float("VENOM SPIT!", boss.x, boss.y - 30, "#b06ad0");
+        break;
+      }
+      case "webWall": {
+        // wall of snaring web across player's lane
+        this.spawnWall(boss, 5, 28, 22, 4, 0, 0, 0, true, 1.2, "#e8e8f0", "web");
+        this.float("WEB WALL!", boss.x, boss.y - 30, "#e8e8f0");
+        break;
+      }
+      case "leapStrike": {
+        // boss leaps to player and slams (telegraph at player pos)
+        this.spawnExplosion(this.px, this.py, 60, 0.7, 1.2, "#dfe3e8", boss, 55);
+        boss.castLock = 0.8;
+        this.float("LEAP STRIKE!", boss.x, boss.y - 30, "#dfe3e8");
+        break;
+      }
+
+      // ========== SPIDER QUEEN — phase 3 ==========
+      case "spiderRain": {
+        // egg-sacs rain down as telegraphed AoEs that hatch nothing (pure damage)
+        for (let i = 0; i < 7; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 100);
+          this.spawnExplosion(this.px + Math.cos(ang) * off, this.py + Math.sin(ang) * off,
+            34, 0.4 + i * 0.15, 0.9, "#dfe3e8", boss);
+        }
+        this.float("SPIDER RAIN!", boss.x, boss.y - 30, "#dfe3e8");
+        break;
+      }
+      case "broodSwarm": {
+        // big summon + haste to all minions
+        for (let i = 0; i < 6; i++) {
+          const ang = (i / 6) * Math.PI * 2;
+          this.spawnMini("spider", boss.x + Math.cos(ang) * 42, boss.y + Math.sin(ang) * 42,
+            Math.round(boss.maxHp * 0.06), Math.round(boss.dmg * 0.5), 14);
+        }
+        for (const e of this.enemies) if (!e.isBoss) e.speed *= 1.4;
+        this.spawnRing(boss.x, boss.y, "#dfe3e8", 46);
+        this.float("BROOD SWARM!", boss.x, boss.y - 30, "#dfe3e8");
+        break;
+      }
+      case "silkPrison": {
+        // large snare zone on player + bolt ring outward (forces dodge while rooted threat)
+        this.spawnPoolAt(this.px, this.py, 40, 4, 0, 0, 0, true, 1.6, "#e8e8f0", "web", 0.5);
+        this.spawnBoltRing(boss, 12, 170, 0.5, "#dfe3e8");
+        this.float("SILK PRISON!", boss.x, boss.y - 30, "#e8e8f0");
+        break;
+      }
+
+      // ========== LICH — phase 2 ==========
+      case "soulLance": {
+        // twin beams at player + offset angle
+        const tele = 0.5, active = 0.3;
+        for (let i = 0; i < 2; i++) {
+          const angOff = i === 0 ? 0 : rand(-0.6, 0.6);
+          const baseAng = Math.atan2(this.py - boss.y, this.px - boss.x) + angOff;
+          const len = dist(boss.x, boss.y, this.px, this.py) + 40;
+          this.beams.push({
+            x1: boss.x, y1: boss.y,
+            x2: boss.x + Math.cos(baseAng) * len, y2: boss.y + Math.sin(baseAng) * len,
+            telegraph: tele, telegraphMax: tele, active: 0, activeMax: active,
+            dmgTick: 0, dmg: Math.round(boss.dmg * 1.4), color: "#b06cff",
+            sweep: 0, sweepAngle: 0, baseAngle: baseAng,
+          });
+        }
+        boss.castLock = tele + active;
+        this.float("SOUL LANCE!", boss.x, boss.y - 30, "#b06cff");
+        break;
+      }
+      case "boneSpear": {
+        // fast piercing cone of bone shards
+        this.spawnCone(boss, 5, Math.PI * 0.25, 240, 0.7, "#c8b8e8");
+        boss.castLock = 0.3;
+        this.float("BONE SPEAR!", boss.x, boss.y - 30, "#c8b8e8");
+        break;
+      }
+      case "curseZone": {
+        // dark pools that damage + slow around the player
+        for (let i = 0; i < 3; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 80);
+          this.spawnPoolAt(this.px + Math.cos(ang) * off, this.py + Math.sin(ang) * off,
+            28, 5, Math.round(boss.dmg * 0.5), 0.4, 1.2, false, 0, "#8a5ad0", "slime", 0.4);
+        }
+        this.float("CURSE ZONE!", boss.x, boss.y - 30, "#8a5ad0");
+        break;
+      }
+
+      // ========== LICH — phase 3 ==========
+      case "deathNova": {
+        // expanding bolt ring + explosion on boss
+        this.spawnBoltRing(boss, 20, 190, 0.6, "#b06cff");
+        this.spawnExplosion(boss.x, boss.y, 90, 0.4, 1.0, "#8a5ad0", boss, 50);
+        boss.castLock = 0.4;
+        this.float("DEATH NOVA!", boss.x, boss.y - 30, "#b06cff");
+        break;
+      }
+      case "boneStorm": {
+        // dense double ring of bones
+        this.spawnBoltRing(boss, 24, 170, 0.6, "#c8b8e8");
+        this.spawnBoltRing(boss, 24, 230, 0.6, "#c8b8e8", 0.1);
+        this.float("BONE STORM!", boss.x, boss.y - 30, "#c8b8e8");
+        break;
+      }
+      case "undeadArmy": {
+        // large summon: skeletons + ghosts
+        for (let i = 0; i < 4; i++) {
+          const ang = rand(0, Math.PI * 2), off = rand(30, 60);
+          this.spawnMini("skeleton", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.1), Math.round(boss.dmg * 0.5), 16);
+        }
+        for (let i = 0; i < 2; i++) {
+          const ang = rand(0, Math.PI * 2), off = rand(30, 60);
+          this.spawnMini("ghost", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.08), Math.round(boss.dmg * 0.4), 16);
+        }
+        this.spawnRing(boss.x, boss.y, "#b06cff", 48);
+        this.float("UNDEAD ARMY!", boss.x, boss.y - 30, "#b06cff");
+        break;
+      }
+
+      // ========== LAVA GOLEM — phase 2 ==========
+      case "fireWall": {
+        // wall of lava across player's lane
+        this.spawnWall(boss, 5, 30, 26, 5, Math.round(boss.dmg * 0.6), 0.3, 1, false, 0, "#ff6a2a", "lava");
+        this.float("FIRE WALL!", boss.x, boss.y - 30, "#ff6a2a");
+        break;
+      }
+      case "magmaWave": {
+        // wide cone of fireballs
+        this.spawnCone(boss, 7, Math.PI * 0.5, 180, 0.6, "#ff8a2a", "fireball");
+        boss.castLock = 0.3;
+        this.float("MAGMA WAVE!", boss.x, boss.y - 30, "#ff8a2a");
+        break;
+      }
+      case "emberBurst": {
+        // ring of fireballs outward
+        this.spawnBoltRing(boss, 14, 180, 0.6, "#ff8a2a", 0, "fireball");
+        this.float("EMBER BURST!", boss.x, boss.y - 30, "#ff8a2a");
+        break;
+      }
+
+      // ========== LAVA GOLEM — phase 3 ==========
+      case "volcano": {
+        // 10 meteors raining across the arena
+        for (let i = 0; i < 10; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 110);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = 0.3 + i * 0.12;
+          this.hazards.push({
+            x: tx, y: ty, radius: 46,
+            telegraph: tele, telegraphMax: tele,
+            dmg: Math.round(boss.dmg * 1.1), color: "#ff6a2a",
+            exploded: false, fade: 0, kind: "meteor",
+          });
+        }
+        this.float("VOLCANO!", boss.x, boss.y - 30, "#ff6a2a");
+        break;
+      }
+      case "lavaTsunami": {
+        // multiple lava walls sweeping — fill much of the arena with lava lanes
+        for (let row = 0; row < 3; row++) {
+          for (let i = 0; i < 4; i++) {
+            const x = FIELD.x + 40 + i * (FIELD.w / 4);
+            const y = FIELD.y + 50 + row * (FIELD.h / 3);
+            this.spawnPoolAt(x, y, 30, 5, Math.round(boss.dmg * 0.6), 0.3, 1, false, 0, "#ff6a2a", "lava", 0.4 + row * 0.3);
+          }
+        }
+        this.float("LAVA TSUNAMI!", boss.x, boss.y - 30, "#ff3a2a");
+        break;
+      }
+      case "infernoNova": {
+        // massive explosion on boss + leaves big lava pool
+        this.spawnExplosion(boss.x, boss.y, 130, 0.6, 1.4, "#ff3a2a", boss, 65, true, "#ff6a2a");
+        this.spawnBoltRing(boss, 12, 160, 0.5, "#ff8a2a", 0, "fireball");
+        boss.castLock = 0.8;
+        this.float("INFERNO NOVA!", boss.x, boss.y - 30, "#ff3a2a");
         break;
       }
     }
@@ -1715,12 +2046,77 @@ export class Engine {
   private damageEnemy(e: Enemy, dmg: number) {
     const crit = this.bonusCrit > 0 && Math.random() < this.bonusCrit;
     let d = Math.round(dmg * rand(0.9, 1.1) * (crit ? 2 : 1));
+
+    // boss shield-break routing
+    if (e.isBoss) {
+      if (e.bossState === "shielded") {
+        // all damage chips the shield; HP is locked. Overflow is discarded.
+        e.shield -= d;
+        e.hitFlash = 0.12;
+        this.float("\u25c6" + d, e.x, e.y - e.size * 0.4, "#6ad7ff");
+        if (e.shield <= 0) {
+          e.shield = 0;
+          this.breakShield(e);
+        }
+        return;
+      }
+      // broken: amplified HP damage during the vulnerability window
+      d = Math.round(d * BREAK_DMG_AMP);
+      e.hp -= d;
+      e.hitFlash = 0.12;
+      this.float(d + "!", e.x, e.y - e.size * 0.4, "#ff8a3a");
+      if (e.hp <= 0) {
+        this.killEnemy(e);
+        return;
+      }
+      this.checkBossPhaseCross(e);
+      return;
+    }
+
     e.hp -= d;
     e.hitFlash = 0.12;
     if (crit) this.float(d + "!", e.x, e.y - e.size * 0.4, "#ffce3a");
     else this.float("" + d, e.x, e.y - e.size * 0.4, "#fff");
     if (e.hp <= 0) {
       this.killEnemy(e);
+    }
+  }
+
+  // shield depleted → enter broken state (stunned, vulnerable, no spells)
+  private breakShield(boss: Enemy) {
+    boss.bossState = "broken";
+    boss.breakTimer = BREAK_WINDOW;
+    boss.castLock = 0;
+    boss.castAnim = 0;
+    boss.phaseFlash = 0.6;
+    this.bossSpellTimer = 999;   // stop casting while broken
+    this.float("SHIELD BREAK!", boss.x, boss.y - 42, "#6ad7ff");
+    this.spawnRing(boss.x, boss.y, "#6ad7ff", 72);
+  }
+
+  // break window ended (timer or phase cross) → restore shield, resume
+  private endBreak(boss: Enemy) {
+    boss.bossState = "shielded";
+    boss.shield = boss.shieldMax;
+    boss.breakTimer = 0;
+    this.bossSpellTimer = this.pickBossCooldown(boss.spellPool);
+    this.float("SHIELD UP", boss.x, boss.y - 42, "#6ad7ff");
+    this.spawnRing(boss.x, boss.y, "#6ad7ff", 56);
+  }
+
+  // during break window, HP can cross a phase threshold (66% / 33%)
+  private checkBossPhaseCross(boss: Enemy) {
+    const ratio = boss.hp / boss.maxHp;
+    const newPhase: 1 | 2 | 3 = ratio > 0.66 ? 1 : ratio > 0.33 ? 2 : 3;
+    if (newPhase !== boss.phase) {
+      boss.phase = newPhase;
+      const def = BOSSES[this.bossKindOf(boss)];
+      boss.spellPool = def.spells.filter((s) => s.tier === newPhase);
+      this.float(newPhase === 3 ? "ENRAGED!" : "PHASE " + newPhase + "!", boss.x, boss.y - 56, "#ff3a1a");
+      this.spawnRing(boss.x, boss.y, "#ff3a1a", 64);
+      boss.phaseFlash = 0.8;
+      // phase advance ends the break window immediately and restores shield
+      this.endBreak(boss);
     }
   }
 
@@ -2334,17 +2730,38 @@ export class Engine {
         oy -= 3 * Math.sin(k * Math.PI);
       }
     }
+    const broken = e.bossState === "broken";
+    if (broken) {
+      // stagger shake while stunned
+      ox += Math.sin(performance.now() / 40) * 2;
+      oy += 1;
+    }
     ctx.save();
     ctx.translate(cx + ox, cy + oy);
     ctx.scale(sx, sy);
     ctx.translate(-cx, -cy);
-    // hitFlash / frozen overlays (same as regular enemies)
     drawSprite(ctx, e.spriteKey, e.sprite,
       Math.round(cx - size / 2), Math.round(cy - size / 2), size, e.faceLeft);
-    if (e.hitFlash > 0) {
+    if (e.phaseFlash > 0) {
+      // bright flash on break / phase change
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = Math.min(1, e.phaseFlash);
+      ctx.fillStyle = e.bossState === "broken" ? "#6ad7ff" : "#ff5a5a";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    } else if (e.hitFlash > 0) {
       ctx.globalCompositeOperation = "source-atop";
       ctx.globalAlpha = 0.7;
       ctx.fillStyle = "#ffffff";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    } else if (broken) {
+      // washed-out grey while vulnerable
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#3a3a44";
       ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1;
@@ -2355,10 +2772,74 @@ export class Engine {
       ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1;
+    } else if (e.phase === 3) {
+      // enraged: pulsing red overlay
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.22 + 0.12 * Math.sin(performance.now() / 150);
+      ctx.fillStyle = "#ff2a2a";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
+    // enraged aura ring (phase 3, when active)
+    if (e.phase === 3 && e.bossState === "shielded") {
+      ctx.save();
+      ctx.globalAlpha = 0.25 + 0.15 * Math.sin(performance.now() / 120);
+      ctx.strokeStyle = "#ff3a2a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, size * 0.62, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // shield bubble around boss while shielded
+    if (e.bossState === "shielded" && e.shieldMax > 0) {
+      this.drawShieldBubble(e, cx, cy, size);
+    }
+    // "stars" stun indicator while broken
+    if (broken) {
+      ctx.save();
+      const n = 3;
+      for (let i = 0; i < n; i++) {
+        const a = performance.now() / 200 + (i / n) * Math.PI * 2;
+        const sxp = cx + Math.cos(a) * size * 0.35;
+        const syp = cy - size * 0.55 + Math.sin(a) * 3;
+        ctx.fillStyle = "#ffd24a";
+        ctx.font = "8px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("\u2726", sxp, syp);
+      }
+      ctx.restore();
+    }
     // per-boss cast FX overlay (drawn untransformed so glows don't clip)
     this.drawBossCastFx(e, kind, cx, cy, size);
+  }
+
+  // translucent shield bubble; alpha + thickness scale with remaining shield
+  private drawShieldBubble(e: Enemy, cx: number, cy: number, size: number) {
+    const ctx = this.ctx;
+    const frac = Math.max(0, e.shield / e.shieldMax);
+    if (frac <= 0) return;
+    const r = size * 0.7;
+    const pulse = 0.5 + 0.2 * Math.sin(performance.now() / 220);
+    ctx.save();
+    // fill
+    const grad = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r);
+    grad.addColorStop(0, "rgba(106,215,255,0)");
+    grad.addColorStop(1, `rgba(106,215,255,${0.18 * frac * pulse})`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    // ring (thickness scales with shield)
+    ctx.globalAlpha = 0.5 + 0.4 * frac;
+    ctx.strokeStyle = "#6ad7ff";
+    ctx.lineWidth = 1 + 1.5 * frac;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // spell cast windup visual per boss kind
@@ -2519,6 +3000,11 @@ export class Engine {
       bossName,
       bossHp: boss ? Math.max(0, Math.round(boss.hp)) : undefined,
       bossMax: boss ? boss.maxHp : undefined,
+      bossShield: boss ? Math.max(0, Math.round(boss.shield)) : undefined,
+      bossShieldMax: boss ? boss.shieldMax : undefined,
+      bossPhase: boss ? boss.phase : undefined,
+      bossBroken: boss ? boss.bossState === "broken" : undefined,
+      bossBreakTimer: boss && boss.bossState === "broken" ? Math.max(0, boss.breakTimer) : undefined,
       goldGained: this.goldGained,
       xpGained: this.xpGained,
       monstersKilled: this.monstersKilled,

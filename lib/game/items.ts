@@ -193,20 +193,21 @@ export function rollItem(opts: {
 
 // Weighted rarity roll; deeper/bossier callers can bias via luck.
 export function rollRarity(luck = 0): Rarity {
-  // base weights
+  // base weights — epic & legendary are deliberately rare
   const w: Record<Rarity, number> = {
-    common: 58,
+    common: 60,
     uncommon: 26,
-    rare: 11,
-    epic: 4,
-    legendary: 1,
+    rare: 10,
+    epic: 3,
+    legendary: 0.3,
   };
-  // luck shifts weight toward higher tiers
+  // luck shifts weight toward higher tiers.
+  // epic/legendary scale gently so high tiers stay scarce even with big luck.
   w.common = Math.max(5, w.common - luck * 30);
-  w.uncommon += luck * 8;
-  w.rare += luck * 12;
-  w.epic += luck * 7;
-  w.legendary += luck * 4;
+  w.uncommon += luck * 9;
+  w.rare += luck * 13;
+  w.epic += Math.max(0, luck) * 3;
+  w.legendary += Math.max(0, luck) * 1.0;
 
   const total = RARITIES.reduce((s, r) => s + w[r], 0);
   let roll = Math.random() * total;

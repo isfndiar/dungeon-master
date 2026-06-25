@@ -200,11 +200,35 @@ function RaidInner() {
             </div>
 
             {hud.bossName && hud.bossMax ? (
-              <div className="boss-bar">
-                <div className="nm">{hud.bossName}</div>
-                <div className="track">
-                  <div style={{ width: ((hud.bossHp ?? 0) / hud.bossMax) * 100 + "%" }} />
+              <div className={"boss-bar" + (hud.bossBroken ? " broken" : "")}>
+                <div className="nm">
+                  <span>{hud.bossName}</span>
+                  <span className="phase-pips">
+                    {[1, 2, 3].map((p) => (
+                      <span
+                        key={p}
+                        className={"pip" + ((hud.bossPhase ?? 1) >= p ? " on" : "")}
+                      />
+                    ))}
+                  </span>
                 </div>
+                <div className="track">
+                  <div
+                    className="hp"
+                    style={{ width: ((hud.bossHp ?? 0) / hud.bossMax) * 100 + "%" }}
+                  />
+                  {!hud.bossBroken && hud.bossShieldMax ? (
+                    <div
+                      className="shield"
+                      style={{ width: ((hud.bossShield ?? 0) / hud.bossShieldMax) * 100 + "%" }}
+                    />
+                  ) : null}
+                </div>
+                {hud.bossBroken ? (
+                  <div className="break-label">
+                    SHIELD BROKEN — STRIKE! {Math.ceil(hud.bossBreakTimer ?? 0)}s
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </>
