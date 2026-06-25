@@ -63,6 +63,26 @@ interface Building {
   portal?: boolean;
 }
 
+interface Plaza {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface TownMap {
+  id: string;
+  name: string;
+  worldW: number;
+  worldH: number;
+  buildings: Building[];
+  npcs: NpcDef[];
+  spawnX: number;
+  spawnY: number;
+  exits: { left?: string; right?: string };
+  plazas: Plaza[];
+}
+
 export interface TownCallbacks {
   onNearby: (npc: NpcDef | null) => void;
   onInteract: (npc: NpcDef) => void;
@@ -93,8 +113,8 @@ export class TownEngine {
   private viewH = TOWN_H;
 
   private heroId: HeroId;
-  private px = WORLD_W / 2;
-  private py = WORLD_H - 60;
+  private px = 0;
+  private py = 0;
   private camX = 0;
   private camY = 0;
   private faceLeft = false;
@@ -102,8 +122,9 @@ export class TownEngine {
   private animTime = 0; // seconds, drives frame index
   private moving = false;
 
-  private npcs: NpcDef[] = [];
-  private buildings: Building[] = [];
+  private maps: Record<string, TownMap> = {};
+  private currentMap!: TownMap;
+  private currentMapId = "town";
   private grassTile?: HTMLImageElement;
   private grassPattern?: CanvasPattern;
   private roadTile?: HTMLImageElement;
@@ -119,7 +140,12 @@ export class TownEngine {
     this.input = new Input(canvas);
     this.heroId = heroId;
     this.cb = cb;
-    this.buildLayout();
+    const townMap = this.buildTownMap();
+    this.maps = { town: townMap };
+    this.currentMap = townMap;
+    this.currentMapId = "town";
+    this.px = townMap.spawnX;
+    this.py = townMap.spawnY;
     this.preloadBuildings();
     preloadHeroSprites();
     this.resize();
@@ -176,9 +202,9 @@ export class TownEngine {
     if (this.nearby) this.cb.onInteract(this.nearby);
   }
 
-  private buildLayout() {
+  private buildTownMap(): TownMap {
     // Buildings (decorative + landmarks) — spread across the big world.
-    this.buildings = [
+    const buildings: Building[] = [
       // Grand Castle (top center)
       {
         x: 500, y: 70, w: 280, h: 130, color: "#6a6f7a", roof: "#4a4f59",
@@ -223,7 +249,7 @@ export class TownEngine {
 
     // NPCs — each carries a procedural-character bias (gen) that the generator
     // turns into a unique pixel sprite (unless a static PNG asset is supplied).
-    this.npcs = [
+    const npcs: NpcDef[] = [
       {
         id: "captain", name: "Captain Mara",
         gen: { headgear: "helmet", cloth: "#caa23a", trim: "#7a1f2a", hair: "#6a4a22" },
@@ -329,7 +355,7 @@ export class TownEngine {
       { id: "w_owen", name: "Owen",  gen: { cloth: "#4a8f6a", hair: "#4a3018" }, x: 980, y: 580, radius: 80,  speed: 32 },
     ];
     for (const w of wanderers) {
-      this.npcs.push({
+      npcs.push({
         id: w.id, name: w.name, gen: w.gen,
         x: w.x, y: w.y, action: "talk", facing: 1,
         lines: [
@@ -358,7 +384,7 @@ export class TownEngine {
       { id: "w_v11", name: "Pell",   asset: "/sprites/villager/villager_11_keyed.png", drawSize: 52, x: 240, y: 440, radius: 80,  speed: 35 },
     ];
     for (const w of pngWanderers) {
-      this.npcs.push({
+      npcs.push({
         id: w.id, name: w.name, gen: {},
         x: w.x, y: w.y, action: "talk", facing: 1,
         asset: w.asset, drawSize: w.drawSize,
@@ -377,7 +403,7 @@ export class TownEngine {
 
     // bake a unique procedural sprite for each NPC (seeded by its id),
     // or preload a static PNG sprite when one is supplied.
-    for (const n of this.npcs) {
+    for (const n of npcs) {
       if (n.asset) {
         const img = new Image();
         img.src = n.asset;
@@ -402,10 +428,28 @@ export class TownEngine {
         n.sprite = generateCharacter(n.id, n.gen);
       }
     }
+
+    return {
+      id: "town",
+      name: "Town",
+      worldW: WORLD_W,
+      worldH: WORLD_H,
+      buildings,
+      npcs,
+      spawnX: WORLD_W / 2,
+      spawnY: WORLD_H - 60,
+      exits: {},
+      plazas: [
+        { x: 120, y: 340, w: 1040, h: 230 },
+        { x: 460, y: 200, w: 360, h: 140 },
+        { x: 1100, y: 340, w: 180, h: 230 },
+        { x: 0, y: 400, w: 120, h: 120 },
+      ],
+    };
   }
 
   private preloadBuildings() {
-    for (const b of this.buildings) {
+    for (const b of this.currentMap.buildings) {
       const img = new Image();
       img.src = b.asset;
       b.image = img;
@@ -424,7 +468,7 @@ export class TownEngine {
     const footY = 6;    // feet are a bit below sprite center
     const fx = px;
     const fy = py + footY;
-    for (const b of this.buildings) {
+    for (const b of this.currentMap.buildings) {
       if (
         fx + r > b.x &&
         fx - r < b.x + b.w &&
@@ -476,7 +520,7 @@ export class TownEngine {
     this.camY = clamp(this.py - this.viewH / 2, 0, Math.max(0, WORLD_H - this.viewH));
 
     // wanderer AI — pick a new direction periodically, stroll, pause, repeat
-    for (const n of this.npcs) {
+    for (const n of this.currentMap.npcs) {
       const w = n.wander;
       if (!w) continue;
       // pause briefly if player is interacting with this wanderer
@@ -520,7 +564,7 @@ export class TownEngine {
     // nearest NPC within range
     let best: NpcDef | null = null;
     let bestD = INTERACT_DIST;
-    for (const n of this.npcs) {
+    for (const n of this.currentMap.npcs) {
       const d = Math.hypot(n.x - this.px, n.y - this.py);
       if (d < bestD) { bestD = d; best = n; }
     }
@@ -605,10 +649,10 @@ export class TownEngine {
     // buildings + entities interleaved by Y for depth sorting
     // (entities behind buildings are hidden)
     const draws: { y: number; fn: () => void }[] = [];
-    for (const b of this.buildings) {
+    for (const b of this.currentMap.buildings) {
       draws.push({ y: b.y + b.h, fn: () => this.drawBuilding(b) });
     }
-    for (const n of this.npcs) {
+    for (const n of this.currentMap.npcs) {
       draws.push({ y: n.y, fn: () => this.drawNpc(n) });
     }
     draws.push({ y: this.py, fn: () => this.drawPlayer() });
@@ -690,7 +734,7 @@ export class TownEngine {
     ctx.globalAlpha = 1;
 
     // buildings
-    for (const b of this.buildings) {
+    for (const b of this.currentMap.buildings) {
       ctx.fillStyle = "#4a4f5a";
       ctx.fillRect(mx + b.x * sx, my + b.y * sy, Math.max(2, b.w * sx), Math.max(2, b.h * sy));
     }
@@ -701,7 +745,7 @@ export class TownEngine {
     ctx.fillRect(mx + 460 * sx, my + 200 * sy, 360 * sx, 140 * sy);
 
     // key NPCs (non-wanderers only)
-    for (const n of this.npcs) {
+    for (const n of this.currentMap.npcs) {
       if (n.wander) continue;
       ctx.fillStyle = "#ffd24a";
       ctx.fillRect(mx + n.x * sx - 1, my + n.y * sy - 1, 3, 3);
