@@ -285,7 +285,10 @@ export class Engine {
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
-    this.ctx.scale(RENDER_SCALE, RENDER_SCALE);
+    // setTransform (absolute) instead of scale (cumulative): idempotent across
+    // React StrictMode double-mount which reuses the same canvas + context and
+    // would otherwise stack scale() calls → over-zoomed view on first entry.
+    this.ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
     this.input = new Input(canvas);
     this.hero = HEROES[heroId];
     this.heroId = heroId;
