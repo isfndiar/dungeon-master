@@ -231,6 +231,8 @@ export class TownEngine {
       const sp = this.transitionSpawn!;
       this.px = sp.x;
       this.py = sp.y;
+      this.camX = clamp(this.px - this.viewW / 2, 0, Math.max(0, this.currentMap.worldW - this.viewW));
+      this.camY = clamp(this.py - this.viewH / 2, 0, Math.max(0, this.currentMap.worldH - this.viewH));
       this.nearby = null;
       this.prevInteract = false;
       this.transitionState = "fade-in";
