@@ -1295,10 +1295,44 @@ export class Engine {
         break;
       }
       // ----- lava pools/eruption (Stage E) -----
-      case "lavaPool":
-      case "eruption":
-        // implemented in Stage E
+      case "lavaPool": {
+        const count = t === 1 ? 1 : t === 2 ? 3 : 5;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 100);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.pools.push({
+            x: tx, y: ty, radius: 32,
+            time: 6, timeMax: 6,
+            dmgPerSec: Math.round(boss.dmg * 0.6),
+            slow: 0.3, slowTime: 1, snare: false, snareTime: 0,
+            color: "#ff6a2a", kind: "lava",
+            tickAcc: 0, spawnTelegraph: 0.5,
+          });
+        }
+        this.float("LAVA POOL!", boss.x, boss.y - 30, "#ff6a2a");
         break;
+      }
+      case "eruption": {
+        const radius = t === 1 ? 60 : t === 2 ? 90 : 120;
+        const knock = t === 1 ? 0 : t === 2 ? 45 : 60;
+        const leavePool = t === 3;
+        const tele = 0.7;
+        this.hazards.push({
+          x: boss.x, y: boss.y, radius,
+          telegraph: tele, telegraphMax: tele,
+          dmg: Math.round(boss.dmg * 1.3),
+          color: "#ff3a2a",
+          exploded: false, fade: 0, kind: "eruption",
+          knockback: knock,
+          leavePool,
+          poolColor: "#ff6a2a",
+        });
+        boss.castLock = 0.9;
+        this.float("ERUPTION!", boss.x, boss.y - 30, "#ff3a2a");
+        break;
+      }
     }
   }
 
@@ -1573,6 +1607,18 @@ export class Engine {
             ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
             ctx.stroke();
           }
+        }
+        // lava kind: bright core glow + ember flecks
+        if (p.kind === "lava") {
+          const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius);
+          grad.addColorStop(0, "rgba(255,210,74,0.6)");
+          grad.addColorStop(0.6, "rgba(255,106,42,0.3)");
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.globalAlpha = k;
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
       ctx.restore();
