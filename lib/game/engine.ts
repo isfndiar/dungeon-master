@@ -1167,11 +1167,68 @@ export class Engine {
         break;
       }
       // ----- spider family (Stage C) -----
-      case "webBarrage":
-      case "webTrap":
-      case "summonSpiderlings":
-        // implemented in Stage C
+      case "webBarrage": {
+        const count = t === 1 ? 6 : t === 2 ? 12 : 18;
+        const baseAng = Math.atan2(this.py - boss.y, this.px - boss.x);
+        for (let i = 0; i < count; i++) {
+          let ang: number;
+          if (t === 1) {
+            // 60° fan toward player
+            ang = baseAng + (i - (count - 1) / 2) * (Math.PI / 3 / (count - 1));
+          } else {
+            // 360° ring (tier 2) or radial burst (tier 3)
+            ang = (i / count) * Math.PI * 2 + (t === 3 ? rand(-0.1, 0.1) : 0);
+          }
+          const speed = t === 3 ? 200 : 180;
+          this.projectiles.push({
+            x: boss.x, y: boss.y,
+            vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+            dmg: Math.round(boss.dmg * 0.6),
+            from: "enemy", kind: "bolt", life: 2.5, radius: 4,
+            tint: "#dfe3e8",
+          });
+        }
+        this.float("WEB BARRAGE!", boss.x, boss.y - 30, "#dfe3e8");
         break;
+      }
+      case "webTrap": {
+        const count = t === 1 ? 1 : t === 2 ? 3 : 5;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 80);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.pools.push({
+            x: tx, y: ty, radius: 24,
+            time: 4, timeMax: 4,
+            dmgPerSec: 0,
+            slow: 0, slowTime: 0, snare: true, snareTime: 1.5,
+            color: "#e8e8f0", kind: "web",
+            tickAcc: 0, spawnTelegraph: 0.5,
+          });
+        }
+        this.float("WEB TRAP!", boss.x, boss.y - 30, "#e8e8f0");
+        break;
+      }
+      case "summonSpiderlings": {
+        const count = t === 1 ? 2 : t === 2 ? 4 : 6;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2;
+          const off = 40;
+          this.spawnMini("spider", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.06), Math.round(boss.dmg * 0.5), 14);
+        }
+        // tier 3: haste buff to all enemies
+        if (t === 3) {
+          for (const e of this.enemies) {
+            if (!e.isBoss) e.speed *= 1.4;
+          }
+          this.float("HASTE!", boss.x, boss.y - 30, "#ffd24a");
+        }
+        this.spawnRing(boss.x, boss.y, "#dfe3e8", 40);
+        this.float("SUMMON!", boss.x, boss.y - 45, "#dfe3e8");
+        break;
+      }
       // ----- lich family (Stage D) -----
       case "deathBeam":
       case "boneRing":
@@ -1378,6 +1435,23 @@ export class Engine {
         ctx.strokeStyle = p.color;
         ctx.lineWidth = 1;
         ctx.stroke();
+        // web kind: add crosshatch web pattern
+        if (p.kind === "web") {
+          ctx.globalAlpha = 0.5 * k;
+          ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2;
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + Math.cos(a) * p.radius, p.y + Math.sin(a) * p.radius);
+          }
+          ctx.stroke();
+          // concentric rings
+          for (let r = p.radius * 0.4; r < p.radius; r += p.radius * 0.3) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
       }
       ctx.restore();
     }
@@ -1671,6 +1745,15 @@ export class Engine {
           this.drawSword(ctx);
         } else if (!customFireball) {
           drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
+          // boss spell tint overlay (web barrage = white)
+          if (p.tint) {
+            ctx.globalCompositeOperation = "source-atop";
+            ctx.globalAlpha = 0.6;
+            ctx.fillStyle = p.tint;
+            ctx.fillRect(-size / 2, -size / 2, size, size);
+            ctx.globalCompositeOperation = "source-over";
+            ctx.globalAlpha = 1;
+          }
         }
       }
       ctx.restore();
