@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Engine, HudState, RaidResult, MiniMap, VIEW_W, VIEW_H } from "@/lib/game/engine";
 import { HEROES, HeroId, HERO_IDS, xpToNext } from "@/lib/game/heroes";
-import { DUNGEONS, DungeonId, DUNGEON_IDS } from "@/lib/game/dungeons";
+import { DUNGEONS, DungeonId, DUNGEON_IDS, MODE_DEF, GameMode, isValidMode } from "@/lib/game/dungeons";
 import { loadSave, writeSave, heroBonusStats } from "@/lib/save";
 import { Item, itemStatLines, formatStat, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL } from "@/lib/game/items";
 
@@ -50,6 +50,8 @@ function RaidInner() {
   const params = useSearchParams();
   const heroParam = params.get("hero") as HeroId | null;
   const dungeonParam = params.get("dungeon") as DungeonId | null;
+  const modeParamRaw = params.get("mode") as string | null;
+  const modeParam: GameMode = isValidMode(modeParamRaw) ? modeParamRaw : "normal";
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -77,7 +79,7 @@ function RaidInner() {
     const engine = new Engine(canvas, heroParam!, heroLevel, dungeonParam!, {
       onHud: (h) => setHud(h),
       onEnd: (res) => finishRaid(res),
-    }, bonus);
+    }, bonus, modeParam);
     engine.setScale(SCALE);
     engineRef.current = engine;
     engine.start();
@@ -97,10 +99,13 @@ function RaidInner() {
 
   const finishRaid = (res: RaidResult) => {
     const save = loadSave();
-    save.gold += res.goldGained;
+    const rewardMult = MODE_DEF[modeParam].rewardMult;
+    const gold = Math.round(res.goldGained * rewardMult);
+    const xp = Math.round(res.xpGained * rewardMult);
+    save.gold += gold;
     const ups: { name: string; level: number }[] = [];
     const prog = save.heroes[heroParam!];
-    prog.xp += res.xpGained;
+    prog.xp += xp;
     while (prog.xp >= xpToNext(prog.level)) {
       prog.xp -= xpToNext(prog.level);
       prog.level += 1;
@@ -113,7 +118,7 @@ function RaidInner() {
     if (res.loot.length) save.inventory.push(...res.loot);
     writeSave(save);
     setLevelUps(ups);
-    setResult(res);
+    setResult({ ...res, goldGained: gold, xpGained: xp });
   };
 
   const focusGame = () => {
@@ -153,6 +158,9 @@ function RaidInner() {
               </div>
               <div className="hud-right">
                 <div>{hud.dungeonName}</div>
+                <div className="mode-badge" style={{ color: MODE_DEF[modeParam].color }}>
+                  {MODE_DEF[modeParam].label} {MODE_DEF[modeParam].mult}x
+                </div>
                 {hud.isEndless ? (
                   <div>Wave {hud.wave ?? 0}</div>
                 ) : (
@@ -220,6 +228,9 @@ function RaidInner() {
                   ? `SLAIN AT WAVE ${result.wave}`
                   : "YOU FELL..."}
             </h2>
+            <div className="mode-badge result" style={{ color: MODE_DEF[modeParam].color }}>
+              {MODE_DEF[modeParam].label} mode · {MODE_DEF[modeParam].rewardMult}x rewards
+            </div>
             <div className="reward">
               ◆ Gold +{result.goldGained}<br />
               ✦ XP +{result.xpGained}<br />

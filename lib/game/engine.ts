@@ -5,7 +5,7 @@ import {
 import {
   MONSTERS, BOSSES, MonsterDef, BossDef, BossKind, MonsterKind, BossSpellKind, BossSpell, SpellTier,
 } from "./monsters";
-import { DUNGEONS, DungeonId, DungeonDef } from "./dungeons";
+import { DUNGEONS, DungeonId, DungeonDef, GameMode, MODE_DEF, modeDifficulty } from "./dungeons";
 import {
   heroSprites, monsterSprites, bossSprites, fxSprites, drawSprite, drawAnim, SpriteDef,
 } from "./sprites";
@@ -196,6 +196,8 @@ export class Engine {
   private hero: HeroDef;
   private heroLevel: number;
   private dungeon: DungeonDef;
+  private mode: GameMode = "normal";
+  private difficulty: number = 1;   // cached mode-adjusted difficulty multiplier
 
   // player state
   private px = VIEW_W / 2;
@@ -278,7 +280,8 @@ export class Engine {
     heroLevel: number,
     dungeonId: DungeonId,
     cb: EngineCallbacks,
-    bonus?: ItemStats
+    bonus?: ItemStats,
+    mode: GameMode = "normal"
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
@@ -288,6 +291,8 @@ export class Engine {
     this.heroId = heroId;
     this.heroLevel = heroLevel;
     this.dungeon = DUNGEONS[dungeonId];
+    this.mode = mode;
+    this.difficulty = modeDifficulty(this.dungeon, mode);
     this.cb = cb;
     preloadHeroSprites();
 
@@ -409,7 +414,7 @@ export class Engine {
 
   private spawnMonster(kind: MonsterKind) {
     const def: MonsterDef = MONSTERS[kind];
-    const d = this.dungeon.difficulty;
+    const d = this.difficulty;
     const p = this.edgePos();
     this.enemies.push({
       x: p.x, y: p.y,
@@ -427,7 +432,7 @@ export class Engine {
 
   private spawnBoss() {
     const def: BossDef = BOSSES[this.dungeon.boss];
-    const d = this.dungeon.difficulty;
+    const d = this.difficulty;
     const pool = def.spells.filter((s) => s.tier === 1);
     this.enemies.push({
       x: VIEW_W / 2, y: FIELD.y + 40,
@@ -453,7 +458,7 @@ export class Engine {
   private spawnEndlessWave() {
     this.wave++;
     this.waveSpawned = true;
-    const diff = 1 + this.wave * 0.12;
+    const diff = (1 + this.wave * 0.12) * MODE_DEF[this.mode].mult;
     const count = 3 + Math.floor(this.wave * 1.1);
 
     // every 10th wave: boss + reduced minions
@@ -1738,12 +1743,13 @@ export class Engine {
   private maybeDropLoot(e: Enemy) {
     // item level scales with dungeon difficulty + depth (or wave for endless)
     const depth = this.isEndless ? this.wave : this.curRoom.depth;
-    const ilvl = Math.max(1, Math.round(this.dungeon.difficulty * 4 + depth));
+    const ilvl = Math.max(1, Math.round(this.difficulty * 4 + depth));
+    const luck = MODE_DEF[this.mode].luck;
     if (e.isBoss) {
-      // boss always drops 2 items with luck bias
+      // boss always drops 2 items with luck bias (bosses lean rare+ on top of mode luck)
       const n = 2;
       for (let i = 0; i < n; i++) {
-        const rarity = rollRarity(0.6); // bosses lean rare+
+        const rarity = rollRarity(0.6 + luck);
         const it = rollItem({ ilvl: ilvl + 3, rarity, heroForWeapon: this.heroId });
         this.loot.push(it);
         this.float(it.name, e.x, e.y - 14 - i * 10, "#ffce3a");
@@ -1752,7 +1758,8 @@ export class Engine {
     }
     // regular monsters: ~18% drop chance
     if (Math.random() < 0.18) {
-      const it = rollItem({ ilvl, heroForWeapon: this.heroId });
+      const rarity = rollRarity(luck);
+      const it = rollItem({ ilvl, rarity, heroForWeapon: this.heroId });
       this.loot.push(it);
       this.float("LOOT!", e.x, e.y - 14, "#5fd35f");
     }

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   HEROES, HERO_IDS, HeroId, hpForLevel, dmgForLevel, xpToNext,
 } from "@/lib/game/heroes";
-import { DUNGEONS, DUNGEON_IDS, DungeonId } from "@/lib/game/dungeons";
+import { DUNGEONS, DUNGEON_IDS, DungeonId, MODE_LIST, MODE_DEF, GameMode, isValidMode } from "@/lib/game/dungeons";
 import { heroSprites, drawSprite } from "@/lib/game/sprites";
 import { TownEngine, NpcDef, TownAction } from "@/lib/game/town";
 import {
@@ -314,6 +314,8 @@ function DungeonSelect({ save, hero, router }: {
 }) {
   const dungeons = DUNGEON_IDS.map((id) => DUNGEONS[id]).sort((a, b) => a.order - b.order);
   const [pick, setPick] = useState<DungeonId | null>(null);
+  const [mode, setMode] = useState<GameMode>("normal");
+  const selectedDungeon = pick ? DUNGEONS[pick] : null;
   return (
     <div>
       <div className="dungeon-grid">
@@ -343,12 +345,47 @@ function DungeonSelect({ save, hero, router }: {
           );
         })}
       </div>
+      {pick && (
+        <div className="mode-select">
+          <div className="mode-buttons">
+            {MODE_LIST.map((m) => {
+              const md = MODE_DEF[m];
+              return (
+                <button
+                  key={m}
+                  className={"mode-btn" + (mode === m ? " active" : "")}
+                  onClick={() => setMode(m)}
+                  style={{
+                    borderColor: mode === m ? md.color : undefined,
+                    color: mode === m ? md.color : undefined,
+                  }}
+                >
+                  {md.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mode-info">
+            <span style={{ color: MODE_DEF[mode].color }}>{MODE_DEF[mode].label}</span>
+            <span>{MODE_DEF[mode].desc}</span>
+            <span className="mode-stats">
+              {selectedDungeon && (
+                <>
+                  {" "}Diff {MODE_DEF[mode].mult}x → {(selectedDungeon.difficulty * MODE_DEF[mode].mult).toFixed(2)}x
+                  {"  ·  Rewards "}
+                  {MODE_DEF[mode].rewardMult}x
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
       <button
         className="raid-btn"
         disabled={!pick}
-        onClick={() => pick && router.push(`/raid?hero=${hero}&dungeon=${pick}`)}
+        onClick={() => pick && router.push(`/raid?hero=${hero}&dungeon=${pick}&mode=${mode}`)}
       >
-        {pick ? `RAID AS ${HEROES[hero].name.toUpperCase()}: ${DUNGEONS[pick].name}` : "SELECT A DUNGEON"}
+        {pick ? `RAID AS ${HEROES[hero].name.toUpperCase()}: ${DUNGEONS[pick].name} (${MODE_DEF[mode].label})` : "SELECT A DUNGEON"}
       </button>
     </div>
   );
