@@ -7,6 +7,7 @@ import { HEROES, HeroId, HERO_IDS, xpToNext } from "@/lib/game/heroes";
 import { DUNGEONS, DungeonId, DUNGEON_IDS, MODE_DEF, GameMode, isValidMode } from "@/lib/game/dungeons";
 import { loadSave, writeSave, heroBonusStats } from "@/lib/save";
 import { Item, itemStatLines, formatStat, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL } from "@/lib/game/items";
+import { ItemIcon } from "../ItemIcon";
 
 const SCALE = 2;
 
@@ -273,13 +274,16 @@ function RaidInner() {
                 <div className="loot-list">
                   {result.loot.map((it) => (
                     <div className="loot-item" key={it.id}>
-                      <span className="loot-name" style={{ color: RARITY_COLOR[it.rarity] }}>
-                        {it.name}
-                      </span>
-                      <span className="loot-meta">
-                        {RARITY_LABEL[it.rarity]} {SLOT_LABEL[it.slot]} —{" "}
-                        {itemStatLines(it).map((l) => formatStat(l.key, l.value)).join(", ")}
-                      </span>
+                      <ItemIcon slot={it.slot} rarity={it.rarity} size={28} />
+                      <div className="loot-text">
+                        <span className="loot-name" style={{ color: RARITY_COLOR[it.rarity] }}>
+                          {it.name}
+                        </span>
+                        <span className="loot-meta">
+                          {RARITY_LABEL[it.rarity]} {SLOT_LABEL[it.slot]} —{" "}
+                          {itemStatLines(it).map((l) => formatStat(l.key, l.value)).join(", ")}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>

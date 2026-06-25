@@ -687,6 +687,21 @@ button {
   gap: 4px;
   position: relative;
 }
+.slot-item-main {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.slot-item-main svg {
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+}
+.slot-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
 .slot-item-name {
   font-size: 8px;
 }
@@ -716,9 +731,13 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   font-size: 7px;
   color: var(--muted);
   padding: 10px;
+}
+.slot-empty svg {
+  opacity: 0.3;
 }
 
 .equip-totals {
@@ -786,6 +805,22 @@ button {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.inv-item-top {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.inv-item-top svg {
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+}
+.inv-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 .inv-item-head {
   display: flex;
@@ -859,8 +894,19 @@ button {
 }
 .loot-item {
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.loot-item svg {
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+}
+.loot-text {
+  display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 .loot-name {
   font-size: 8px;

@@ -16,6 +16,7 @@ import {
   Item, EquipSlot, EQUIP_SLOTS, SLOT_LABEL, RARITY_COLOR, RARITY_LABEL,
   itemStatLines, formatStat, itemPower,
 } from "@/lib/game/items";
+import { ItemIcon } from "./ItemIcon";
 
 type Panel = "none" | "heroes" | "equipment" | "dungeon" | "market";
 
@@ -433,20 +434,28 @@ function EquipmentPanel({
                 <div className="slot-label">{SLOT_LABEL[slot]}</div>
                 {it ? (
                   <div className="slot-item" style={{ borderColor: RARITY_COLOR[it.rarity] }}>
-                    <div className="slot-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
-                      {it.name}
-                    </div>
-                    <div className="slot-item-stats">
-                      {itemStatLines(it).map((l) => (
-                        <span key={l.key}>{formatStat(l.key, l.value)}</span>
-                      ))}
+                    <div className="slot-item-main">
+                      <ItemIcon slot={it.slot} rarity={it.rarity} size={30} />
+                      <div className="slot-item-body">
+                        <div className="slot-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
+                          {it.name}
+                        </div>
+                        <div className="slot-item-stats">
+                          {itemStatLines(it).map((l) => (
+                            <span key={l.key}>{formatStat(l.key, l.value)}</span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                     <button className="slot-btn" onClick={() => commit((s) => unequip(s, hero, slot))}>
                       Unequip
                     </button>
                   </div>
                 ) : (
-                  <div className="slot-empty">— empty —</div>
+                  <div className="slot-empty">
+                    <ItemIcon slot={slot} rarity="common" size={26} />
+                    <span>— empty —</span>
+                  </div>
                 )}
               </div>
             );
@@ -483,18 +492,23 @@ function EquipmentPanel({
               const lockedWeapon = it.slot === "weapon" && it.hero !== "any" && it.hero !== hero;
               return (
                 <div className="inv-item" key={it.id} style={{ borderColor: RARITY_COLOR[it.rarity] }}>
-                  <div className="inv-item-head">
-                    <span className="inv-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
-                      {it.name}
-                    </span>
-                    <span className="inv-item-tag">
-                      {RARITY_LABEL[it.rarity]} · {SLOT_LABEL[it.slot]}
-                    </span>
-                  </div>
-                  <div className="inv-item-stats">
-                    {itemStatLines(it).map((l) => (
-                      <span key={l.key}>{formatStat(l.key, l.value)}</span>
-                    ))}
+                  <div className="inv-item-top">
+                    <ItemIcon slot={it.slot} rarity={it.rarity} size={32} />
+                    <div className="inv-item-info">
+                      <div className="inv-item-head">
+                        <span className="inv-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
+                          {it.name}
+                        </span>
+                        <span className="inv-item-tag">
+                          {RARITY_LABEL[it.rarity]} · {SLOT_LABEL[it.slot]}
+                        </span>
+                      </div>
+                      <div className="inv-item-stats">
+                        {itemStatLines(it).map((l) => (
+                          <span key={l.key}>{formatStat(l.key, l.value)}</span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                   <div className="inv-item-actions">
                     <button
