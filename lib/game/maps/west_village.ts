@@ -1,5 +1,4 @@
 import { generateCharacter } from "../pixelgen";
-import type { GenOptions } from "../pixelgen";
 import type { Building, NpcDef, TownMap } from "./types";
 import { WORLD_W, WORLD_H } from "./types";
 
