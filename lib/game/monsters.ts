@@ -4,6 +4,24 @@ export type MonsterKind =
 
 export type BossKind = "giant_slime" | "spider_queen" | "lich" | "lava_golem";
 
+export type BossSpellKind =
+  // slime family
+  | "split" | "slimePool" | "bounceSlam"
+  // spider family
+  | "webBarrage" | "webTrap" | "summonSpiderlings"
+  // lich family
+  | "deathBeam" | "boneRing" | "raiseDead"
+  // lava family
+  | "meteor" | "lavaPool" | "eruption";
+
+export type SpellTier = 1 | 2 | 3;
+
+export interface BossSpell {
+  kind: BossSpellKind;
+  cooldown: number; // seconds between casts in this phase
+  tier: SpellTier;  // phase power level (1/2/3)
+}
+
 export interface MonsterDef {
   kind: MonsterKind;
   name: string;
@@ -30,6 +48,7 @@ export interface BossDef {
   gold: number;
   xp: number;
   size: number;
+  spells: BossSpell[]; // 9 entries: 3 per phase, tagged tier 1/2/3
 }
 
 export const MONSTERS: Record<MonsterKind, MonsterDef> = {
@@ -43,9 +62,69 @@ export const MONSTERS: Record<MonsterKind, MonsterDef> = {
   golem:   { kind: "golem",   name: "Golem",   hp: 110, dmg: 16, speed: 35, ranged: false, attackCooldown: 1.2, gold: 16, xp: 20, size: 24 },
 };
 
+// 9 spells per boss: 3 phases x 3 spells. Cooldown shrinks at higher tier.
 export const BOSSES: Record<BossKind, BossDef> = {
-  giant_slime: { kind: "giant_slime", name: "Giant Slime", hp: 420,  dmg: 14, speed: 30, ranged: false, attackCooldown: 1.0, gold: 80,  xp: 120, size: 56 },
-  spider_queen:{ kind: "spider_queen",name: "Spider Queen",hp: 560,  dmg: 16, speed: 45, ranged: true,  projectile: "bolt", attackCooldown: 1.3, gold: 110, xp: 170, size: 56 },
-  lich:        { kind: "lich",        name: "Lich",        hp: 680,  dmg: 18, speed: 40, ranged: true,  projectile: "bolt", attackCooldown: 1.1, gold: 150, xp: 230, size: 56 },
-  lava_golem:  { kind: "lava_golem",  name: "Lava Golem",  hp: 900,  dmg: 22, speed: 30, ranged: false, attackCooldown: 1.4, gold: 210, xp: 320, size: 56 },
+  giant_slime: {
+    kind: "giant_slime", name: "Giant Slime", hp: 420, dmg: 14, speed: 30,
+    ranged: false, attackCooldown: 1.0, gold: 80, xp: 120, size: 56,
+    spells: [
+      // phase 1
+      { kind: "split",       cooldown: 5,  tier: 1 },
+      { kind: "slimePool",   cooldown: 4,  tier: 1 },
+      { kind: "bounceSlam",  cooldown: 4,  tier: 1 },
+      // phase 2
+      { kind: "split",       cooldown: 4,  tier: 2 },
+      { kind: "slimePool",   cooldown: 3,  tier: 2 },
+      { kind: "bounceSlam",  cooldown: 3,  tier: 2 },
+      // phase 3
+      { kind: "split",       cooldown: 3,  tier: 3 },
+      { kind: "slimePool",   cooldown: 2,  tier: 3 },
+      { kind: "bounceSlam",  cooldown: 2,  tier: 3 },
+    ],
+  },
+  spider_queen: {
+    kind: "spider_queen", name: "Spider Queen", hp: 560, dmg: 16, speed: 45,
+    ranged: true, projectile: "bolt", attackCooldown: 1.3, gold: 110, xp: 170, size: 56,
+    spells: [
+      { kind: "webBarrage",          cooldown: 4,  tier: 1 },
+      { kind: "webTrap",             cooldown: 5,  tier: 1 },
+      { kind: "summonSpiderlings",   cooldown: 6,  tier: 1 },
+      { kind: "webBarrage",          cooldown: 3,  tier: 2 },
+      { kind: "webTrap",             cooldown: 4,  tier: 2 },
+      { kind: "summonSpiderlings",   cooldown: 5,  tier: 2 },
+      { kind: "webBarrage",          cooldown: 2,  tier: 3 },
+      { kind: "webTrap",             cooldown: 3,  tier: 3 },
+      { kind: "summonSpiderlings",   cooldown: 4,  tier: 3 },
+    ],
+  },
+  lich: {
+    kind: "lich", name: "Lich", hp: 680, dmg: 18, speed: 40,
+    ranged: true, projectile: "bolt", attackCooldown: 1.1, gold: 150, xp: 230, size: 56,
+    spells: [
+      { kind: "deathBeam",   cooldown: 5,  tier: 1 },
+      { kind: "boneRing",    cooldown: 4,  tier: 1 },
+      { kind: "raiseDead",   cooldown: 6,  tier: 1 },
+      { kind: "deathBeam",   cooldown: 4,  tier: 2 },
+      { kind: "boneRing",    cooldown: 3,  tier: 2 },
+      { kind: "raiseDead",   cooldown: 5,  tier: 2 },
+      { kind: "deathBeam",   cooldown: 3,  tier: 3 },
+      { kind: "boneRing",    cooldown: 2,  tier: 3 },
+      { kind: "raiseDead",   cooldown: 4,  tier: 3 },
+    ],
+  },
+  lava_golem: {
+    kind: "lava_golem", name: "Lava Golem", hp: 900, dmg: 22, speed: 30,
+    ranged: false, attackCooldown: 1.4, gold: 210, xp: 320, size: 56,
+    spells: [
+      { kind: "meteor",    cooldown: 6,  tier: 1 },
+      { kind: "lavaPool",  cooldown: 5,  tier: 1 },
+      { kind: "eruption",  cooldown: 5,  tier: 1 },
+      { kind: "meteor",    cooldown: 4,  tier: 2 },
+      { kind: "lavaPool",  cooldown: 4,  tier: 2 },
+      { kind: "eruption",  cooldown: 4,  tier: 2 },
+      { kind: "meteor",    cooldown: 3,  tier: 3 },
+      { kind: "lavaPool",  cooldown: 3,  tier: 3 },
+      { kind: "eruption",  cooldown: 3,  tier: 3 },
+    ],
+  },
 };

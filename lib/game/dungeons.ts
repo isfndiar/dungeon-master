@@ -101,3 +101,33 @@ export const DUNGEONS: Record<DungeonId, DungeonDef> = {
 };
 
 export const DUNGEON_IDS: DungeonId[] = ["forest", "cave", "crypt", "volcano", "endless"];
+
+// ---------- difficulty modes ----------
+export type GameMode = "default" | "normal" | "hard" | "extreme" | "hell";
+
+export interface ModeDef {
+  label: string;
+  mult: number;        // difficulty multiplier (compounds with dungeon.difficulty)
+  rewardMult: number;  // gold + xp multiplier
+  luck: number;        // loot rarity luck shift (passed to rollRarity)
+  color: string;       // theme color
+  desc: string;
+}
+
+export const MODE_DEF: Record<GameMode, ModeDef> = {
+  default: { label: "Default", mult: 0.5, rewardMult: 0.7, luck: -2, color: "#5fd35f", desc: "Easy. For learning boss patterns." },
+  normal:  { label: "Normal",  mult: 1.0, rewardMult: 1.0, luck: 0,  color: "#9a8fb0", desc: "Standard baseline challenge." },
+  hard:    { label: "Hard",    mult: 2.0, rewardMult: 1.5, luck: 2,  color: "#ff8a2a", desc: "Double enemy stats. Better loot." },
+  extreme: { label: "Extreme", mult: 3.0, rewardMult: 2.0, luck: 4,  color: "#ff3a3a", desc: "Triple stats. Epic+ loot common." },
+  hell:    { label: "Hell",    mult: 5.0, rewardMult: 3.0, luck: 6,  color: "#8a0a0a", desc: "Brutal. Legendaries rain. You will die." },
+};
+
+export const MODE_LIST: GameMode[] = ["default", "normal", "hard", "extreme", "hell"];
+
+export function modeDifficulty(dungeon: DungeonDef, mode: GameMode): number {
+  return dungeon.difficulty * MODE_DEF[mode].mult;
+}
+
+export function isValidMode(m: string | null | undefined): m is GameMode {
+  return !!m && (MODE_LIST as string[]).includes(m);
+}

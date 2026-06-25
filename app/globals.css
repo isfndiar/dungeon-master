@@ -279,6 +279,73 @@ button {
   cursor: not-allowed;
 }
 
+/* Difficulty mode select (inline after dungeon pick) */
+.mode-select {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mode-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.mode-btn {
+  padding: 8px 14px;
+  font-size: 9px;
+  font-family: inherit;
+  background: var(--panel2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-bottom: 3px solid var(--border);
+  cursor: pointer;
+  transition: filter 0.1s, transform 0.05s;
+  letter-spacing: 1px;
+}
+.mode-btn:hover { filter: brightness(1.15); }
+.mode-btn:active {
+  transform: translateY(1px);
+  border-bottom-width: 1px;
+}
+.mode-btn.active {
+  background: var(--panel);
+  border-bottom-width: 3px;
+  font-weight: bold;
+}
+.mode-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  text-align: center;
+  font-size: 8px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.mode-info span:first-child {
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+.mode-stats {
+  color: var(--text);
+}
+
+/* HUD mode badge */
+.mode-badge {
+  font-size: 7px;
+  letter-spacing: 1px;
+  font-weight: bold;
+  margin-top: 2px;
+}
+.mode-badge.result {
+  font-size: 9px;
+  text-align: center;
+  margin: 6px 0 10px;
+}
+
 .tiny-btn {
   background: var(--panel2);
   border: 2px solid var(--border);

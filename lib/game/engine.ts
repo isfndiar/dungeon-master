@@ -3,9 +3,9 @@ import {
   HEROES, HeroId, HeroDef, hpForLevel, dmgForLevel, SkillDef, SkillKind,
 } from "./heroes";
 import {
-  MONSTERS, BOSSES, MonsterDef, BossDef, BossKind, MonsterKind,
+  MONSTERS, BOSSES, MonsterDef, BossDef, BossKind, MonsterKind, BossSpellKind, BossSpell, SpellTier,
 } from "./monsters";
-import { DUNGEONS, DungeonId, DungeonDef } from "./dungeons";
+import { DUNGEONS, DungeonId, DungeonDef, GameMode, MODE_DEF, modeDifficulty } from "./dungeons";
 import {
   heroSprites, monsterSprites, bossSprites, fxSprites, drawSprite, drawAnim, SpriteDef,
 } from "./sprites";
@@ -59,6 +59,53 @@ interface Projectile {
   homingTurn?: number;     // max turn rate (rad/sec)
   hitSet2?: Set<Enemy>;    // swords can hit a few enemies each
   hitsLeft?: number;       // remaining hits for a homing sword
+  tint?: string;           // optional color tint for boss spells
+}
+
+interface HazardAoE {
+  x: number; y: number;        // ground target
+  radius: number;              // explosion radius
+  telegraph: number;           // warning countdown (s)
+  telegraphMax: number;        // initial telegraph duration (for fall anim)
+  dmg: number;
+  color: string;
+  exploded: boolean;
+  fade: number;                // post-explosion fade timer
+  kind: "meteor" | "bounceSlam" | "eruption";
+  knockback?: number;          // px to push player on hit
+  leavePool?: boolean;         // eruption tier 3 leaves pool at center
+  poolColor?: string;
+}
+
+interface HazardBeam {
+  x1: number; y1: number;      // boss pos (locked at cast)
+  x2: number; y2: number;      // target pos (locked, except sweep rotates)
+  telegraph: number;           // warning countdown
+  telegraphMax: number;
+  active: number;              // beam active time remaining
+  activeMax: number;
+  dmgTick: number;             // tick accumulator (0.25s ticks)
+  dmg: number;
+  color: string;
+  sweep?: number;              // sweep angular velocity (rad/s) for tier 3
+  sweepAngle?: number;         // current sweep angle offset
+  baseAngle?: number;          // initial angle from boss to target
+}
+
+interface HazardPool {
+  x: number; y: number;
+  radius: number;
+  time: number;                // remaining lifetime
+  timeMax: number;
+  dmgPerSec: number;
+  slow: number;                // 0..1 movement slow fraction
+  slowTime: number;            // debuff duration applied on overlap
+  snare: boolean;              // full root
+  snareTime: number;           // snare debuff duration
+  color: string;
+  kind: "slime" | "lava" | "web";
+  tickAcc: number;             // dmg tick accumulator
+  spawnTelegraph: number;      // pre-activate warning (0 = active)
 }
 
 interface Enemy {
@@ -75,6 +122,11 @@ interface Enemy {
   faceLeft: boolean;
   bob: number;
   frozen: number; // seconds remaining of frozen/slow
+  phase: 1 | 2 | 3;            // current boss phase
+  spellPool: BossSpell[];      // cached spells for current phase
+  castLock: number;            // boss immobile while > 0
+  atkAnim: number;             // 0..1 basic-attack swing progress (1=just started)
+  castAnim: number;            // 0..1 spell cast windup progress (1=just started)
 }
 
 interface FloatText { x: number; y: number; text: string; life: number; color: string; }
@@ -144,6 +196,8 @@ export class Engine {
   private hero: HeroDef;
   private heroLevel: number;
   private dungeon: DungeonDef;
+  private mode: GameMode = "normal";
+  private difficulty: number = 1;   // cached mode-adjusted difficulty multiplier
 
   // player state
   private px = VIEW_W / 2;
@@ -166,6 +220,10 @@ export class Engine {
   private walkBob = 0;
   private animTime = 0;   // drives walk/idle frame index
   private moving = false; // moved this frame
+  // debuffs from boss pool hazards
+  private playerSlow = 0;        // seconds remaining of movement slow
+  private playerSlowMult = 1;    // multiplier while active (0.5 = half speed)
+  private playerSnare = 0;       // seconds remaining of root
   // buffs
   private dmgBuff = 0;      // seconds remaining of damage buff
   private dmgBuffMult = 1;  // multiplier while active
@@ -183,6 +241,10 @@ export class Engine {
   private projectiles: Projectile[] = [];
   private floats: FloatText[] = [];
   private particles: Particle[] = [];
+  private hazards: HazardAoE[] = [];
+  private beams: HazardBeam[] = [];
+  private pools: HazardPool[] = [];
+  private bossSpellTimer = 999;   // boss spell cooldown accumulator
 
   private phase: Phase = "intro";
   private map!: DungeonMap;
@@ -218,16 +280,22 @@ export class Engine {
     heroLevel: number,
     dungeonId: DungeonId,
     cb: EngineCallbacks,
-    bonus?: ItemStats
+    bonus?: ItemStats,
+    mode: GameMode = "normal"
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
-    this.ctx.scale(RENDER_SCALE, RENDER_SCALE);
+    // setTransform (absolute) instead of scale (cumulative): idempotent across
+    // React StrictMode double-mount which reuses the same canvas + context and
+    // would otherwise stack scale() calls → over-zoomed view on first entry.
+    this.ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
     this.input = new Input(canvas);
     this.hero = HEROES[heroId];
     this.heroId = heroId;
     this.heroLevel = heroLevel;
     this.dungeon = DUNGEONS[dungeonId];
+    this.mode = mode;
+    this.difficulty = modeDifficulty(this.dungeon, mode);
     this.cb = cb;
     preloadHeroSprites();
 
@@ -300,6 +368,11 @@ export class Engine {
     room.visited = true;
     this.enemies = [];
     this.projectiles = [];
+    this.hazards = [];
+    this.beams = [];
+    this.pools = [];
+    this.playerSlow = 0;
+    this.playerSnare = 0;
 
     // place the player just inside the door they entered from
     if (fromDir) {
@@ -344,7 +417,7 @@ export class Engine {
 
   private spawnMonster(kind: MonsterKind) {
     const def: MonsterDef = MONSTERS[kind];
-    const d = this.dungeon.difficulty;
+    const d = this.difficulty;
     const p = this.edgePos();
     this.enemies.push({
       x: p.x, y: p.y,
@@ -356,12 +429,14 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: def.gold, xp: def.xp,
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
     });
   }
 
   private spawnBoss() {
     const def: BossDef = BOSSES[this.dungeon.boss];
-    const d = this.dungeon.difficulty;
+    const d = this.difficulty;
+    const pool = def.spells.filter((s) => s.tier === 1);
     this.enemies.push({
       x: VIEW_W / 2, y: FIELD.y + 40,
       hp: Math.round(def.hp * d), maxHp: Math.round(def.hp * d),
@@ -372,13 +447,21 @@ export class Engine {
       sprite: bossSprites[def.kind], spriteKey: "b_" + def.kind,
       gold: def.gold, xp: def.xp,
       isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
+      phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
     });
+    this.bossSpellTimer = this.pickBossCooldown(pool);
+  }
+
+  private pickBossCooldown(pool: BossSpell[]): number {
+    if (pool.length === 0) return 999;
+    // use min cooldown of pool for first cast timing
+    return Math.min(...pool.map((s) => s.cooldown));
   }
 
   private spawnEndlessWave() {
     this.wave++;
     this.waveSpawned = true;
-    const diff = 1 + this.wave * 0.12;
+    const diff = (1 + this.wave * 0.12) * MODE_DEF[this.mode].mult;
     const count = 3 + Math.floor(this.wave * 1.1);
 
     // every 10th wave: boss + reduced minions
@@ -388,6 +471,7 @@ export class Engine {
         const bossKind = bosses[Math.floor(Math.random() * bosses.length)];
         const def: BossDef = BOSSES[bossKind];
         const bossHp = Math.round(def.hp * diff * 1.5);
+        const pool = def.spells.filter((s) => s.tier === 1);
         this.enemies.push({
           x: VIEW_W / 2, y: FIELD.y + 40,
           hp: bossHp, maxHp: bossHp,
@@ -398,7 +482,9 @@ export class Engine {
           sprite: bossSprites[def.kind], spriteKey: "b_" + def.kind,
           gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
           isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
+          phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
         });
+        this.bossSpellTimer = this.pickBossCooldown(pool);
         this.float("BOSS WAVE!", VIEW_W / 2, VIEW_H / 2 - 30, "#ff3a1a");
       }
       // fewer minions alongside boss
@@ -429,10 +515,27 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
     });
   }
 
-  // ---------- main loop ----------
+  // summon a mini-monster (boss spell add). Reduced gold/xp, no spell pool.
+  private spawnMini(kind: MonsterKind, x: number, y: number, hp: number, dmg: number, size: number) {
+    const def: MonsterDef = MONSTERS[kind];
+    this.enemies.push({
+      x: clamp(x, FIELD.x + 8, FIELD.x + FIELD.w - 8),
+      y: clamp(y, FIELD.y + 8, FIELD.y + FIELD.h - 8),
+      hp, maxHp: hp,
+      dmg, speed: def.speed * 1.2,
+      ranged: def.ranged, projectile: def.projectile,
+      atkTimer: rand(0, def.attackCooldown), atkCooldown: def.attackCooldown,
+      size,
+      sprite: monsterSprites[kind], spriteKey: "m_" + kind,
+      gold: Math.round(def.gold * 0.3), xp: Math.round(def.xp * 0.3),
+      isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0,
+    });
+  }
   private loop = (now: number) => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.loop);
@@ -467,6 +570,7 @@ export class Engine {
     this.updatePlayer(dt);
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
+    this.updateHazards(dt);
     this.updateFx(dt);
 
     // newly cleared this frame?
@@ -589,10 +693,14 @@ export class Engine {
     if (this.input.pressed("w", "arrowup")) my -= 1;
     if (this.input.pressed("s", "arrowdown")) my += 1;
     const len = Math.hypot(mx, my);
-    const moveSpeed = (this.hero.speed + this.bonusSpeed) * (this.speedBuff > 0 ? this.speedBuffMult : 1);
-    this.moving = len > 0;
+    // debuff: snare = full root, slow = reduced multiplier
+    let debuffMult = 1;
+    if (this.playerSnare > 0) debuffMult = 0;
+    else if (this.playerSlow > 0) debuffMult = this.playerSlowMult;
+    const moveSpeed = (this.hero.speed + this.bonusSpeed) * (this.speedBuff > 0 ? this.speedBuffMult : 1) * debuffMult;
+    this.moving = len > 0 && debuffMult > 0;
     this.animTime += dt;
-    if (len > 0) {
+    if (len > 0 && debuffMult > 0) {
       mx /= len; my /= len;
       this.px += mx * moveSpeed * dt;
       this.py += my * moveSpeed * dt;
@@ -614,6 +722,8 @@ export class Engine {
     if (this.speedBuff > 0) this.speedBuff -= dt;
     if (this.rapidFire > 0) this.rapidFire -= dt;
     if (this.lifeStealBuff > 0) this.lifeStealBuff -= dt;
+    if (this.playerSlow > 0) this.playerSlow -= dt;
+    if (this.playerSnare > 0) this.playerSnare -= dt;
     if (this.healOverTime > 0) {
       this.healOverTime -= dt;
       this.php = Math.min(this.phpMax, this.php + 14 * dt);
@@ -903,33 +1013,44 @@ export class Engine {
       const dx = this.px - e.x, dy = this.py - e.y;
       const d = Math.hypot(dx, dy) || 1;
       e.faceLeft = dx < 0;
+      const locked = e.isBoss && e.castLock > 0; // boss immobile during castLock
 
       const desired = e.ranged ? 110 : 0;
       if (e.ranged) {
         // keep distance
-        if (d < desired - 10) {
-          e.x -= (dx / d) * e.speed * slow * dt;
-          e.y -= (dy / d) * e.speed * slow * dt;
-        } else if (d > desired + 10) {
-          e.x += (dx / d) * e.speed * slow * dt;
-          e.y += (dy / d) * e.speed * slow * dt;
+        if (!locked) {
+          if (d < desired - 10) {
+            e.x -= (dx / d) * e.speed * slow * dt;
+            e.y -= (dy / d) * e.speed * slow * dt;
+          } else if (d > desired + 10) {
+            e.x += (dx / d) * e.speed * slow * dt;
+            e.y += (dy / d) * e.speed * slow * dt;
+          }
         }
         e.atkTimer -= dt;
         if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0) {
           this.enemyFire(e);
           e.atkTimer = e.atkCooldown;
+          e.atkAnim = 1;
         }
       } else {
         // chase
-        e.x += (dx / d) * e.speed * slow * dt;
-        e.y += (dy / d) * e.speed * slow * dt;
+        if (!locked) {
+          e.x += (dx / d) * e.speed * slow * dt;
+          e.y += (dy / d) * e.speed * slow * dt;
+        }
         // contact damage
         e.atkTimer -= dt;
         if (d < e.size * 0.4 + 10 && e.atkTimer <= 0) {
           this.damagePlayer(e.dmg);
           e.atkTimer = e.atkCooldown;
+          e.atkAnim = 1;
         }
       }
+      // tick attack animation (0.3s swing)
+      if (e.atkAnim > 0) e.atkAnim = Math.max(0, e.atkAnim - dt / 0.25);
+      // tick spell cast windup animation (0.3s — snappy telegraph)
+      if (e.castAnim > 0) e.castAnim = Math.max(0, e.castAnim - dt / 0.3);
       e.x = clamp(e.x, FIELD.x + 6, FIELD.x + FIELD.w - 6);
       e.y = clamp(e.y, FIELD.y + 6, FIELD.y + FIELD.h - 6);
     }
@@ -946,6 +1067,578 @@ export class Engine {
           b.x += (dx / d) * push; b.y += (dy / d) * push;
         }
       }
+    }
+
+    // boss spell system: phase transitions + cooldown + castLock
+    const boss = this.enemies.find((e) => e.isBoss);
+    if (boss && boss.spellPool.length > 0 && this.phase === "playing") {
+      // phase transition detection on HP thresholds
+      const hpRatio = boss.hp / boss.maxHp;
+      const newPhase: 1 | 2 | 3 = hpRatio > 0.66 ? 1 : hpRatio > 0.33 ? 2 : 3;
+      if (newPhase !== boss.phase) {
+        boss.phase = newPhase;
+        const def = BOSSES[this.bossKindOf(boss)];
+        boss.spellPool = def.spells.filter((s) => s.tier === newPhase);
+        const label = newPhase === 3 ? "ENRAGED!" : "PHASE " + newPhase + "!";
+        this.float(label, boss.x, boss.y - 40, "#ff3a1a");
+        this.spawnRing(boss.x, boss.y, "#ff3a1a", 60);
+        boss.hitFlash = 0.3;
+      }
+      // castLock tick (boss immobile during beam/eruption) — frozen pauses it
+      if (boss.castLock > 0 && boss.frozen <= 0) boss.castLock -= dt;
+      // spell cooldown only ticks when not locked and not frozen
+      if (boss.castLock <= 0 && boss.frozen <= 0) {
+        this.bossSpellTimer -= dt;
+        if (this.bossSpellTimer <= 0) {
+          const pick = boss.spellPool[Math.floor(Math.random() * boss.spellPool.length)];
+          boss.castAnim = 1;   // trigger spell cast windup animation
+          this.castBossSpell(boss, pick);
+          this.bossSpellTimer = pick.cooldown;
+        }
+      }
+    }
+  }
+
+  private bossKindOf(boss: Enemy): BossKind {
+    return boss.spriteKey.replace("b_", "") as BossKind;
+  }
+
+  private castBossSpell(boss: Enemy, spell: BossSpell) {
+    const t = spell.tier;
+    switch (spell.kind) {
+      // ----- lava family -----
+      case "meteor": {
+        const count = t === 1 ? 4 : t === 2 ? 6 : 8;
+        const teleBase = t === 3 ? 0.25 : 0.35;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 80);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = teleBase + i * 0.2;
+          this.hazards.push({
+            x: tx, y: ty, radius: 50,
+            telegraph: tele, telegraphMax: tele,
+            dmg: Math.round(boss.dmg * 1.2),
+            color: "#ff6a2a",
+            exploded: false, fade: 0, kind: "meteor",
+          });
+        }
+        this.float("METEOR STORM!", boss.x, boss.y - 30, "#ff6a2a");
+        break;
+      }
+      // ----- slime family (Stage B) -----
+      case "split": {
+        const count = t === 1 ? 2 : t === 2 ? 4 : 6;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2 + rand(-0.2, 0.2);
+          const off = 30 + rand(0, 20);
+          this.spawnMini("slime", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.08), Math.round(boss.dmg * 0.4), 14);
+        }
+        this.spawnRing(boss.x, boss.y, "#5fcc5f", 40);
+        this.float("SPLIT!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      case "slimePool": {
+        const count = t === 1 ? 1 : t === 2 ? 3 : 5;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 90);
+          const tx = clamp(boss.x + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(boss.y + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.pools.push({
+            x: tx, y: ty, radius: 28,
+            time: 5, timeMax: 5,
+            dmgPerSec: Math.round(boss.dmg * 0.4),
+            slow: 0.5, slowTime: 2, snare: false, snareTime: 0,
+            color: "#5fcc5f", kind: "slime",
+            tickAcc: 0, spawnTelegraph: 0.25,
+          });
+        }
+        this.float("SLIME POOL!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      case "bounceSlam": {
+        const slams = t === 1 ? 1 : t === 2 ? 2 : 1;
+        const radius = t === 3 ? 80 : 50;
+        const knock = t === 2 ? 45 : t === 3 ? 60 : 0;
+        for (let i = 0; i < slams; i++) {
+          // staggered slams target player pos at cast time + offset
+          const off = i === 0 ? 0 : 50;
+          const ang = rand(0, Math.PI * 2);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = 0.4 + i * 0.25;
+          this.hazards.push({
+            x: tx, y: ty, radius,
+            telegraph: tele, telegraphMax: tele,
+            dmg: Math.round(boss.dmg * 1.0),
+            color: "#5fcc5f",
+            exploded: false, fade: 0, kind: "bounceSlam",
+            knockback: knock,
+          });
+        }
+        boss.castLock = 0.4 + slams * 0.25;
+        this.float("BOUNCE SLAM!", boss.x, boss.y - 30, "#5fcc5f");
+        break;
+      }
+      // ----- spider family (Stage C) -----
+      case "webBarrage": {
+        const count = t === 1 ? 6 : t === 2 ? 12 : 18;
+        const baseAng = Math.atan2(this.py - boss.y, this.px - boss.x);
+        for (let i = 0; i < count; i++) {
+          let ang: number;
+          if (t === 1) {
+            // 60° fan toward player
+            ang = baseAng + (i - (count - 1) / 2) * (Math.PI / 3 / (count - 1));
+          } else {
+            // 360° ring (tier 2) or radial burst (tier 3)
+            ang = (i / count) * Math.PI * 2 + (t === 3 ? rand(-0.1, 0.1) : 0);
+          }
+          const speed = t === 3 ? 200 : 180;
+          this.projectiles.push({
+            x: boss.x, y: boss.y,
+            vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+            dmg: Math.round(boss.dmg * 0.6),
+            from: "enemy", kind: "bolt", life: 2.5, radius: 4,
+            tint: "#dfe3e8",
+          });
+        }
+        this.float("WEB BARRAGE!", boss.x, boss.y - 30, "#dfe3e8");
+        break;
+      }
+      case "webTrap": {
+        const count = t === 1 ? 1 : t === 2 ? 3 : 5;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 80);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.pools.push({
+            x: tx, y: ty, radius: 24,
+            time: 4, timeMax: 4,
+            dmgPerSec: 0,
+            slow: 0, slowTime: 0, snare: true, snareTime: 1.5,
+            color: "#e8e8f0", kind: "web",
+            tickAcc: 0, spawnTelegraph: 0.3,
+          });
+        }
+        this.float("WEB TRAP!", boss.x, boss.y - 30, "#e8e8f0");
+        break;
+      }
+      case "summonSpiderlings": {
+        const count = t === 1 ? 2 : t === 2 ? 4 : 6;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2;
+          const off = 40;
+          this.spawnMini("spider", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.06), Math.round(boss.dmg * 0.5), 14);
+        }
+        // tier 3: haste buff to all enemies
+        if (t === 3) {
+          for (const e of this.enemies) {
+            if (!e.isBoss) e.speed *= 1.4;
+          }
+          this.float("HASTE!", boss.x, boss.y - 30, "#ffd24a");
+        }
+        this.spawnRing(boss.x, boss.y, "#dfe3e8", 40);
+        this.float("SUMMON!", boss.x, boss.y - 45, "#dfe3e8");
+        break;
+      }
+      // ----- lich family (Stage D) -----
+      case "deathBeam": {
+        const beamCount = t === 1 ? 1 : t === 2 ? 2 : 1;
+        const sweep = t === 3 ? 1.2 : 0;
+        const tele = 0.5, active = 0.3;
+        for (let i = 0; i < beamCount; i++) {
+          let tx: number, ty: number;
+          if (i === 0) {
+            tx = this.px; ty = this.py;
+          } else {
+            const ang = Math.atan2(this.py - boss.y, this.px - boss.x) + rand(-0.8, 0.8);
+            const len = dist(boss.x, boss.y, this.px, this.py);
+            tx = boss.x + Math.cos(ang) * len;
+            ty = boss.y + Math.sin(ang) * len;
+          }
+          const baseAng = Math.atan2(ty - boss.y, tx - boss.x);
+          this.beams.push({
+            x1: boss.x, y1: boss.y, x2: tx, y2: ty,
+            telegraph: tele, telegraphMax: tele,
+            active: 0, activeMax: active,
+            dmgTick: 0, dmg: Math.round(boss.dmg * 1.5),
+            color: "#a06cff",
+            sweep, sweepAngle: 0, baseAngle: baseAng,
+          });
+        }
+        boss.castLock = tele + active;
+        this.float("DEATH BEAM!", boss.x, boss.y - 30, "#a06cff");
+        break;
+      }
+      case "boneRing": {
+        const count = t === 1 ? 8 : t === 2 ? 16 : 24;
+        // tier 3: spiral — fire in rotating offset batches over time via staggered life
+        const baseAng = rand(0, Math.PI * 2);
+        for (let i = 0; i < count; i++) {
+          const ang = baseAng + (i / count) * Math.PI * 2 + (t === 3 ? Math.sin(i * 0.5) * 0.3 : 0);
+          this.projectiles.push({
+            x: boss.x, y: boss.y,
+            vx: Math.cos(ang) * 200, vy: Math.sin(ang) * 200,
+            dmg: Math.round(boss.dmg * 0.7),
+            from: "enemy", kind: "bolt", life: 2.5, radius: 4,
+            tint: "#c8b8e8",
+          });
+        }
+        this.float("BONE RING!", boss.x, boss.y - 30, "#c8b8e8");
+        break;
+      }
+      case "raiseDead": {
+        const skel = t === 1 ? 2 : t === 2 ? 3 : 4;
+        const ghosts = t === 1 ? 0 : t === 2 ? 1 : 2;
+        for (let i = 0; i < skel; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 60);
+          this.spawnMini("skeleton", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.1), Math.round(boss.dmg * 0.5), 16);
+        }
+        for (let i = 0; i < ghosts; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 60);
+          this.spawnMini("ghost", boss.x + Math.cos(ang) * off, boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.08), Math.round(boss.dmg * 0.4), 16);
+        }
+        this.spawnRing(boss.x, boss.y, "#a06cff", 40);
+        this.float("RAISE DEAD!", boss.x, boss.y - 30, "#a06cff");
+        break;
+      }
+      // ----- lava pools/eruption (Stage E) -----
+      case "lavaPool": {
+        const count = t === 1 ? 1 : t === 2 ? 3 : 5;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(30, 100);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.pools.push({
+            x: tx, y: ty, radius: 32,
+            time: 6, timeMax: 6,
+            dmgPerSec: Math.round(boss.dmg * 0.6),
+            slow: 0.3, slowTime: 1, snare: false, snareTime: 0,
+            color: "#ff6a2a", kind: "lava",
+            tickAcc: 0, spawnTelegraph: 0.3,
+          });
+        }
+        this.float("LAVA POOL!", boss.x, boss.y - 30, "#ff6a2a");
+        break;
+      }
+      case "eruption": {
+        const radius = t === 1 ? 60 : t === 2 ? 90 : 120;
+        const knock = t === 1 ? 0 : t === 2 ? 45 : 60;
+        const leavePool = t === 3;
+        const tele = 0.4;
+        this.hazards.push({
+          x: boss.x, y: boss.y, radius,
+          telegraph: tele, telegraphMax: tele,
+          dmg: Math.round(boss.dmg * 1.3),
+          color: "#ff3a2a",
+          exploded: false, fade: 0, kind: "eruption",
+          knockback: knock,
+          leavePool,
+          poolColor: "#ff6a2a",
+        });
+        boss.castLock = 0.5;
+        this.float("ERUPTION!", boss.x, boss.y - 30, "#ff3a2a");
+        break;
+      }
+    }
+  }
+
+  private updateHazards(dt: number) {
+    // AoE hazards (meteor, bounceSlam, eruption)
+    for (const h of this.hazards) {
+      if (!h.exploded) {
+        h.telegraph -= dt;
+        if (h.telegraph <= 0) {
+          h.exploded = true;
+          h.fade = 0.4;
+          this.explodeAoE(h);
+        }
+      } else {
+        h.fade -= dt;
+      }
+    }
+    this.hazards = this.hazards.filter((h) => !h.exploded || h.fade > 0);
+
+    // beams (Stage D)
+    this.updateBeams(dt);
+
+    // pools (Stage E)
+    this.updatePools(dt);
+  }
+
+  private updateBeams(dt: number) {
+    for (const b of this.beams) {
+      // sweep: rotate endpoint around boss for tier 3
+      if (b.sweep && b.sweep !== 0 && b.baseAngle !== undefined) {
+        const activePhase = b.telegraph <= 0;
+        if (activePhase) b.sweepAngle = (b.sweepAngle || 0) + b.sweep * dt;
+        const ang = b.baseAngle + (b.sweepAngle || 0);
+        const len = dist(b.x1, b.y1, b.x2, b.y2);
+        b.x2 = b.x1 + Math.cos(ang) * len;
+        b.y2 = b.y1 + Math.sin(ang) * len;
+      }
+      if (b.telegraph > 0) {
+        b.telegraph -= dt;
+        if (b.telegraph <= 0) {
+          b.active = b.activeMax;
+        }
+      } else if (b.active > 0) {
+        b.active -= dt;
+        // dmg tick every 0.25s along segment
+        b.dmgTick += dt;
+        if (b.dmgTick >= 0.25) {
+          b.dmgTick = 0;
+          if (this.distToSegment(this.px, this.py, b.x1, b.y1, b.x2, b.y2) < 14) {
+            this.damagePlayer(Math.round(b.dmg * 0.25));
+          }
+        }
+      }
+    }
+    this.beams = this.beams.filter((b) => b.telegraph > 0 || b.active > 0);
+  }
+
+  private updatePools(dt: number) {
+    for (const p of this.pools) {
+      // pre-activate telegraph
+      if (p.spawnTelegraph > 0) {
+        p.spawnTelegraph -= dt;
+        continue;
+      }
+      p.time -= dt;
+      // dmg tick every 0.5s if player inside
+      p.tickAcc += dt;
+      if (p.tickAcc >= 0.5) {
+        p.tickAcc = 0;
+        if (dist(this.px, this.py, p.x, p.y) < p.radius) {
+          this.damagePlayer(Math.round(p.dmgPerSec * 0.5));
+        }
+      }
+      // apply debuff each frame while overlapping (refreshes timer)
+      if (dist(this.px, this.py, p.x, p.y) < p.radius) {
+        if (p.snare) {
+          this.playerSnare = Math.max(this.playerSnare, p.snareTime);
+        } else if (p.slow > 0) {
+          this.playerSlow = Math.max(this.playerSlow, p.slowTime);
+          this.playerSlowMult = 1 - p.slow;
+        }
+      }
+      // bubbling particles
+      if (Math.random() < 0.3) {
+        const ang = rand(0, Math.PI * 2);
+        const r = rand(0, p.radius * 0.8);
+        this.particles.push({
+          x: p.x + Math.cos(ang) * r, y: p.y + Math.sin(ang) * r,
+          vx: rand(-10, 10), vy: rand(-30, -10),
+          life: 0.5, color: p.color,
+        });
+      }
+    }
+    this.pools = this.pools.filter((p) => p.time > 0);
+  }
+
+  private explodeAoE(h: HazardAoE) {
+    this.spawnRing(h.x, h.y, h.color, h.radius);
+    for (let i = 0; i < 16; i++) {
+      this.particles.push({
+        x: h.x, y: h.y,
+        vx: rand(-90, 90), vy: rand(-90, 90),
+        life: 0.6, color: i % 2 === 0 ? h.color : "#ffd24a",
+      });
+    }
+    if (dist(this.px, this.py, h.x, h.y) < h.radius) {
+      this.damagePlayer(h.dmg);
+      // knockback (bounceSlam, eruption tier 2+)
+      if (h.knockback && h.knockback > 0) {
+        const dx = this.px - h.x, dy = this.py - h.y;
+        const d = Math.hypot(dx, dy) || 1;
+        this.px = clamp(this.px + (dx / d) * h.knockback, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+        this.py = clamp(this.py + (dy / d) * h.knockback, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+      }
+    }
+    // eruption tier 3 leaves a lava pool at center
+    if (h.leavePool) {
+      this.pools.push({
+        x: h.x, y: h.y, radius: 30,
+        time: 5, timeMax: 5,
+        dmgPerSec: Math.round(h.dmg * 0.4),
+        slow: 0.3, slowTime: 1, snare: false, snareTime: 0,
+        color: h.poolColor || "#ff6a2a", kind: "lava",
+        tickAcc: 0, spawnTelegraph: 0,
+      });
+    }
+  }
+
+  private drawHazards(ctx: CanvasRenderingContext2D) {
+    for (const h of this.hazards) {
+      if (!h.exploded) {
+        const t = h.telegraph / h.telegraphMax;   // 1 → 0 as it counts down
+        const pulse = 0.4 + 0.3 * Math.sin(performance.now() / 80);
+        // ground telegraph circle
+        ctx.save();
+        ctx.globalAlpha = 0.18 * pulse;
+        ctx.fillStyle = h.color;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, h.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.7 * pulse;
+        ctx.strokeStyle = h.color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // crosshair
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(h.x - 6, h.y); ctx.lineTo(h.x + 6, h.y);
+        ctx.moveTo(h.x, h.y - 6); ctx.lineTo(h.x, h.y + 6);
+        ctx.stroke();
+        // falling meteor: descends from y - 100 to y over telegraph (only meteor kind)
+        if (h.kind === "meteor") {
+          const fallY = h.y - 100 * t;
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = h.color;
+          ctx.beginPath();
+          ctx.arc(h.x, fallY, 5 + (1 - t) * 2, 0, Math.PI * 2);
+          ctx.fill();
+          // trailing glow
+          ctx.globalAlpha = 0.4 * t;
+          ctx.fillStyle = "#ffd24a";
+          ctx.fillRect(h.x - 1, fallY, 2, h.y - fallY);
+        }
+        ctx.restore();
+      } else {
+        // explosion fade: expanding filled circle, white flash first 0.1s
+        const k = 1 - h.fade / 0.4;   // 0 → 1 as it fades out
+        const r = h.radius * (1 + k * 0.5);
+        ctx.save();
+        const grad = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, r);
+        grad.addColorStop(0, h.fade > 0.3 ? "#ffffff" : "#ffd24a");
+        grad.addColorStop(0.5, h.color);
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.globalAlpha = h.fade / 0.4;
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(h.x, h.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    // beams + pools (Stage D/E)
+    this.drawBeams(ctx);
+    this.drawPools(ctx);
+  }
+
+  private drawBeams(ctx: CanvasRenderingContext2D) {
+    const now = performance.now();
+    for (const b of this.beams) {
+      ctx.save();
+      if (b.telegraph > 0) {
+        // telegraph: thin dashed line, pulsing
+        const pulse = 0.5 + 0.3 * Math.sin(now / 60);
+        ctx.globalAlpha = 0.7 * pulse;
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else if (b.active > 0) {
+        // active beam: thick gradient line + glow
+        const k = b.active / b.activeMax;  // 1 → 0
+        ctx.globalAlpha = k;
+        // outer glow
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = b.color;
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = 14;
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+        // core white-hot
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(b.x1, b.y1);
+        ctx.lineTo(b.x2, b.y2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  private drawPools(ctx: CanvasRenderingContext2D) {
+    const now = performance.now();
+    for (const p of this.pools) {
+      ctx.save();
+      if (p.spawnTelegraph > 0) {
+        // pre-activate telegraph: dashed outline only
+        const pulse = 0.5 + 0.3 * Math.sin(now / 60);
+        ctx.globalAlpha = 0.6 * pulse;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        // active pool: bubbling translucent fill + wavy edge
+        const k = p.time / p.timeMax;   // 1 → 0 fade
+        const wobble = Math.sin(now / 150) * 2;
+        ctx.globalAlpha = 0.35 * k;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius + wobble, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.7 * k;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // web kind: add crosshatch web pattern
+        if (p.kind === "web") {
+          ctx.globalAlpha = 0.5 * k;
+          ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2;
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + Math.cos(a) * p.radius, p.y + Math.sin(a) * p.radius);
+          }
+          ctx.stroke();
+          // concentric rings
+          for (let r = p.radius * 0.4; r < p.radius; r += p.radius * 0.3) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+        }
+        // lava kind: bright core glow + ember flecks
+        if (p.kind === "lava") {
+          const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius);
+          grad.addColorStop(0, "rgba(255,210,74,0.6)");
+          grad.addColorStop(0.6, "rgba(255,106,42,0.3)");
+          grad.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.globalAlpha = k;
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
     }
   }
 
@@ -1053,12 +1746,13 @@ export class Engine {
   private maybeDropLoot(e: Enemy) {
     // item level scales with dungeon difficulty + depth (or wave for endless)
     const depth = this.isEndless ? this.wave : this.curRoom.depth;
-    const ilvl = Math.max(1, Math.round(this.dungeon.difficulty * 4 + depth));
+    const ilvl = Math.max(1, Math.round(this.difficulty * 4 + depth));
+    const luck = MODE_DEF[this.mode].luck;
     if (e.isBoss) {
-      // boss always drops 2 items with luck bias
+      // boss always drops 2 items with luck bias (bosses lean rare+ on top of mode luck)
       const n = 2;
       for (let i = 0; i < n; i++) {
-        const rarity = rollRarity(0.6); // bosses lean rare+
+        const rarity = rollRarity(0.6 + luck);
         const it = rollItem({ ilvl: ilvl + 3, rarity, heroForWeapon: this.heroId });
         this.loot.push(it);
         this.float(it.name, e.x, e.y - 14 - i * 10, "#ffce3a");
@@ -1067,7 +1761,8 @@ export class Engine {
     }
     // regular monsters: ~18% drop chance
     if (Math.random() < 0.18) {
-      const it = rollItem({ ilvl, heroForWeapon: this.heroId });
+      const rarity = rollRarity(luck);
+      const it = rollItem({ ilvl, rarity, heroForWeapon: this.heroId });
       this.loot.push(it);
       this.float("LOOT!", e.x, e.y - 14, "#5fd35f");
     }
@@ -1139,6 +1834,11 @@ export class Engine {
     if (this.ended) return;
     this.ended = true;
     this.phase = win ? "win" : "lose";
+    this.hazards = [];
+    this.beams = [];
+    this.pools = [];
+    this.playerSlow = 0;
+    this.playerSnare = 0;
     // endless mode: always keep all loot (earned per wave, not per dungeon)
     const keepLoot = this.isEndless
       ? this.loot
@@ -1232,10 +1932,22 @@ export class Engine {
           this.drawSword(ctx);
         } else if (!customFireball) {
           drawSprite(ctx, "fx_" + p.kind, def, -size / 2, -size / 2, size);
+          // boss spell tint overlay (web barrage = white)
+          if (p.tint) {
+            ctx.globalCompositeOperation = "source-atop";
+            ctx.globalAlpha = 0.6;
+            ctx.fillStyle = p.tint;
+            ctx.fillRect(-size / 2, -size / 2, size, size);
+            ctx.globalCompositeOperation = "source-over";
+            ctx.globalAlpha = 1;
+          }
         }
       }
       ctx.restore();
     }
+
+    // boss spell hazards (telegraphs + explosions)
+    this.drawHazards(ctx);
 
     // particles
     for (const pt of this.particles) {
@@ -1547,7 +2259,9 @@ export class Engine {
     const ctx = this.ctx;
     const bob = Math.sin(e.bob) * 1.2;
     this.drawShadow(e.x, e.y + e.size * 0.42, e.size);
-    if (e.hitFlash > 0) {
+    if (e.isBoss) {
+      this.drawBoss(e, bob);
+    } else if (e.hitFlash > 0) {
       ctx.save();
       drawSprite(ctx, e.spriteKey, e.sprite,
         Math.round(e.x - e.size / 2), Math.round(e.y - e.size / 2 + bob), e.size, e.faceLeft);
@@ -1578,6 +2292,155 @@ export class Engine {
       ctx.fillStyle = "#5fd35f";
       ctx.fillRect(x, y, w * (e.hp / e.maxHp), 2);
     }
+  }
+
+  // Boss render with per-kind attack + spell-cast animations.
+  // atkAnim: 1→0 over 0.3s (basic attack swing). castAnim: 1→0 over 0.5s (spell windup).
+  private drawBoss(e: Enemy, bob: number) {
+    const ctx = this.ctx;
+    const kind = e.spriteKey.replace("b_", "") as BossKind;
+    const cx = e.x, cy = e.y + bob;
+    const size = e.size;
+    // animation deltas
+    let sx = 1, sy = 1, ox = 0, oy = 0;
+    if (e.castAnim > 0) {
+      const k = e.castAnim; // 1 → 0
+      if (kind === "giant_slime") {
+        // squash down to charge, then pop
+        sy = 1 - 0.3 * k; sx = 1 + 0.3 * k; oy = 4 * k;
+      } else if (kind === "spider_queen") {
+        // rear back, legs splay
+        sy = 1 + 0.15 * k; sx = 1 + 0.2 * k; oy = -4 * k;
+      } else if (kind === "lich") {
+        // lean back, charge staff
+        oy = -2 * k; sx = 1 + 0.05 * k;
+      } else if (kind === "lava_golem") {
+        // grow, glow core
+        sx = 1 + 0.12 * k; sy = 1 + 0.12 * k;
+      }
+    }
+    if (e.atkAnim > 0) {
+      const k = e.atkAnim;
+      if (kind === "giant_slime") {
+        oy -= 3 * Math.sin(k * Math.PI);
+      } else if (kind === "spider_queen") {
+        // lunge toward player
+        const dir = e.faceLeft ? -1 : 1;
+        ox += dir * 4 * Math.sin(k * Math.PI);
+      } else if (kind === "lich") {
+        const dir = e.faceLeft ? -1 : 1;
+        ox += dir * 3 * Math.sin(k * Math.PI);
+      } else if (kind === "lava_golem") {
+        oy -= 3 * Math.sin(k * Math.PI);
+      }
+    }
+    ctx.save();
+    ctx.translate(cx + ox, cy + oy);
+    ctx.scale(sx, sy);
+    ctx.translate(-cx, -cy);
+    // hitFlash / frozen overlays (same as regular enemies)
+    drawSprite(ctx, e.spriteKey, e.sprite,
+      Math.round(cx - size / 2), Math.round(cy - size / 2), size, e.faceLeft);
+    if (e.hitFlash > 0) {
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    } else if (e.frozen > 0) {
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.globalAlpha = 0.5;
+      ctx.fillStyle = "rgba(122,215,255,1)";
+      ctx.fillRect(Math.round(cx - size / 2), Math.round(cy - size / 2), size, size);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+    // per-boss cast FX overlay (drawn untransformed so glows don't clip)
+    this.drawBossCastFx(e, kind, cx, cy, size);
+  }
+
+  // spell cast windup visual per boss kind
+  private drawBossCastFx(e: Enemy, kind: BossKind, cx: number, cy: number, size: number) {
+    if (e.castAnim <= 0) return;
+    const ctx = this.ctx;
+    const k = e.castAnim; // 1 → 0
+    ctx.save();
+    if (kind === "giant_slime") {
+      // green charge glow building up at body center
+      const r = size * 0.5 * (1 - k * 0.4);
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, "rgba(95,204,95," + (0.6 * k) + ")");
+      grad.addColorStop(1, "rgba(95,204,95,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (kind === "spider_queen") {
+      // white web orb at mouth pulsing
+      const r = 4 + (1 - k) * 4;
+      ctx.globalAlpha = k;
+      ctx.fillStyle = "#dfe3e8";
+      ctx.beginPath();
+      ctx.arc(cx, cy - size * 0.3, r, 0, Math.PI * 2);
+      ctx.fill();
+      // silk strands
+      ctx.strokeStyle = "rgba(232,232,240," + k + ")";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - size * 0.3);
+        ctx.lineTo(cx + Math.cos(a) * r * 2, cy - size * 0.3 + Math.sin(a) * r * 2);
+        ctx.stroke();
+      }
+    } else if (kind === "lich") {
+      // purple staff orb above head, growing + swirling
+      const r = 5 + (1 - k) * 5;
+      const ox = e.faceLeft ? -size * 0.3 : size * 0.3;
+      const oy = -size * 0.45;
+      ctx.globalAlpha = k;
+      const grad = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r * 2);
+      grad.addColorStop(0, "rgba(255,255,255," + k + ")");
+      grad.addColorStop(0.4, "rgba(160,108,255," + (0.8 * k) + ")");
+      grad.addColorStop(1, "rgba(160,108,255,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx + ox, cy + oy, r * 2, 0, Math.PI * 2);
+      ctx.fill();
+      // orbiting sparks
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2 + performance.now() / 200;
+        ctx.fillStyle = "#c8b8e8";
+        ctx.beginPath();
+        ctx.arc(cx + ox + Math.cos(a) * r * 1.4, cy + oy + Math.sin(a) * r * 1.4, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (kind === "lava_golem") {
+      // red-hot core glow building inside body
+      const r = size * 0.35 * (1 - k * 0.3);
+      ctx.globalCompositeOperation = "source-atop";
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, "rgba(255,210,74," + (0.8 * k) + ")");
+      grad.addColorStop(0.5, "rgba(255,58,42," + (0.6 * k) + ")");
+      grad.addColorStop(1, "rgba(255,58,42,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+      // ember particles rising
+      if (Math.random() < 0.5) {
+        this.particles.push({
+          x: cx + rand(-size * 0.3, size * 0.3),
+          y: cy + rand(-size * 0.2, size * 0.2),
+          vx: rand(-15, 15), vy: rand(-40, -20),
+          life: 0.4, color: "#ff6a2a",
+        });
+      }
+    }
+    ctx.restore();
   }
 
   private banner(title: string, sub: string) {
