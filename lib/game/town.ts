@@ -167,8 +167,8 @@ export class TownEngine {
       this.canvas.height = pxH;
     }
     // world pixels visible = device pixels / PIXEL_SCALE, never larger than world
-    this.viewW = Math.min(WORLD_W, pxW / PIXEL_SCALE);
-    this.viewH = Math.min(WORLD_H, pxH / PIXEL_SCALE);
+    this.viewW = Math.min(this.currentMap?.worldW ?? WORLD_W, pxW / PIXEL_SCALE);
+    this.viewH = Math.min(this.currentMap?.worldH ?? WORLD_H, pxH / PIXEL_SCALE);
     // map world units -> device pixels (fills the whole backing store)
     const sx = pxW / this.viewW;
     const sy = pxH / this.viewH;
@@ -670,7 +670,7 @@ export class TownEngine {
       }
     } else {
       ctx.fillStyle = "#3a6a3a";
-      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+      ctx.fillRect(0, 0, this.currentMap.worldW, this.currentMap.worldH);
       ctx.fillStyle = "#347a34";
       const tx0 = Math.floor(x0 / 16) * 16, ty0 = Math.floor(y0 / 16) * 16;
       for (let y = ty0; y < y1; y += 16) {
@@ -688,14 +688,14 @@ export class TownEngine {
       }
       if (this.roadPattern) {
         ctx.fillStyle = this.roadPattern;
-        // wide rectangular plaza: from left castle edge to right market/endless
-        ctx.fillRect(120, 340, 1040, 230);
-        // castle courtyard: brick area in front of the top-center castle
-        ctx.fillRect(460, 200, 360, 140);
-        // road to portal (right side)
-        ctx.fillRect(1100, 340, 180, 230);
-        // road to left exit
-        ctx.fillRect(0, 400, 120, 120);
+        for (const p of this.currentMap.plazas) {
+          ctx.fillRect(p.x, p.y, p.w, p.h);
+        }
+      } else {
+        ctx.fillStyle = "#9a8f7a";
+        for (const p of this.currentMap.plazas) {
+          ctx.fillRect(p.x, p.y, p.w, p.h);
+        }
       }
     } else {
       ctx.fillStyle = "#9a8f7a";
@@ -787,12 +787,14 @@ export class TownEngine {
   private drawMinimap() {
     const ctx = this.ctx;
     const mapW = 120;
-    const mapH = Math.round(mapW * (WORLD_H / WORLD_W));
+    const W = this.currentMap.worldW;
+    const H = this.currentMap.worldH;
+    const mapH = Math.round(mapW * (H / W));
     const pad = 6;
     const mx = this.viewW - mapW - pad;
     const my = this.viewH - mapH - pad;
-    const sx = mapW / WORLD_W;
-    const sy = mapH / WORLD_H;
+    const sx = mapW / W;
+    const sy = mapH / H;
 
     // background
     ctx.save();
@@ -809,8 +811,9 @@ export class TownEngine {
 
     // road/plaza
     ctx.fillStyle = "#5a5548";
-    ctx.fillRect(mx + 120 * sx, my + 340 * sy, 1040 * sx, 230 * sy);
-    ctx.fillRect(mx + 460 * sx, my + 200 * sy, 360 * sx, 140 * sy);
+    for (const p of this.currentMap.plazas) {
+      ctx.fillRect(mx + p.x * sx, my + p.y * sy, p.w * sx, p.h * sy);
+    }
 
     // key NPCs (non-wanderers only)
     for (const n of this.currentMap.npcs) {
