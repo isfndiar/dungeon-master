@@ -599,10 +599,14 @@ export class TownEngine {
   }
 
   private preloadBuildings() {
-    for (const b of this.currentMap.buildings) {
-      const img = new Image();
-      img.src = b.asset;
-      b.image = img;
+    for (const map of Object.values(this.maps)) {
+      for (const b of map.buildings) {
+        if (b.asset) {
+          const img = new Image();
+          img.src = b.asset;
+          b.image = img;
+        }
+      }
     }
     const grass = new Image();
     grass.src = "/terrain/grass-tile.png";
@@ -846,7 +850,7 @@ export class TownEngine {
     }
 
     // floating arrow sign near left road exit
-    if (this.px < 100 && this.py > 380 && this.py < 540) {
+    if (this.currentMapId === "town" && this.px < 100 && this.py > 380 && this.py < 540) {
       const t = performance.now() / 1000;
       const bounce = Math.sin(t * 3) * 3;
       const ax = 55;
