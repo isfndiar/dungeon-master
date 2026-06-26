@@ -1,6 +1,7 @@
 export type MonsterKind =
   | "slime" | "wolf" | "bat" | "spider"
-  | "skeleton" | "ghost" | "imp" | "golem";
+  | "skeleton" | "ghost" | "imp" | "golem"
+  | "mermaid" | "anglerfish";
 
 export type BossKind = "giant_slime" | "spider_queen" | "lich" | "lava_golem";
 
@@ -68,6 +69,8 @@ export const MONSTERS: Record<MonsterKind, MonsterDef> = {
   ghost:   { kind: "ghost",   name: "Ghost",   hp: 38,  dmg: 9,  speed: 55, ranged: true,  projectile: "bolt", attackCooldown: 1.6, gold: 9, xp: 12, size: 18 },
   imp:     { kind: "imp",     name: "Imp",     hp: 42,  dmg: 11, speed: 65, ranged: true,  projectile: "fireball", attackCooldown: 1.7, gold: 11, xp: 14, size: 18 },
   golem:   { kind: "golem",   name: "Golem",   hp: 110, dmg: 16, speed: 35, ranged: false, attackCooldown: 1.2, gold: 16, xp: 20, size: 24 },
+  mermaid:    { kind: "mermaid",    name: "Mermaid",    hp: 55,  dmg: 12, speed: 55, ranged: false, attackCooldown: 0.9, gold: 10, xp: 13, size: 20 },
+  anglerfish: { kind: "anglerfish", name: "Anglerfish", hp: 35,  dmg: 10, speed: 70, ranged: true,  projectile: "bolt", attackCooldown: 1.5, gold: 10, xp: 13, size: 18 },
 };
 
 // 9 spells per boss: 3 phases x 3 spells. Cooldown shrinks at higher tier.

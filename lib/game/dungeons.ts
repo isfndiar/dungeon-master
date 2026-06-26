@@ -119,7 +119,7 @@ export const DUNGEONS: Record<DungeonId, DungeonDef> = {
     id: "atlantis",
     name: "Sunken Atlantis",
     desc: "Ancient halls drowned in the deep. Merrows and anglerfish lurk in the dark.",
-    monsters: ["skeleton", "ghost"], // merrow (melee) + anglerfish (ranged)
+    monsters: ["mermaid", "anglerfish"],
     boss: "lich", // kraken — reuses lich behavior
     rooms: 8,
     baseSpawns: 6,
