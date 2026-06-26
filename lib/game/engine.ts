@@ -261,6 +261,8 @@ export class Engine {
   private speedBuff = 0;    // seconds remaining of speed buff
   private speedBuffMult = 1;
   private rapidFire = 0;    // seconds remaining of attack-speed buff
+  private doubleVolleyTimer = 0; // delayed second volley countdown
+  private doubleVolleyDmg = 0;  // cached damage for delayed volley
   private healZoneTime = 0; // sanctuary remaining
   private healZoneX = 0; private healZoneY = 0;
   // knight lifesteal: heals a % of max HP on kill. War Cry boosts it.
@@ -819,6 +821,17 @@ export class Engine {
     if (this.dmgBuff > 0) this.dmgBuff -= dt;
     if (this.speedBuff > 0) this.speedBuff -= dt;
     if (this.rapidFire > 0) this.rapidFire -= dt;
+    // delayed second volley (archer multishot)
+    if (this.doubleVolleyTimer > 0) {
+      this.doubleVolleyTimer -= dt;
+      if (this.doubleVolleyTimer <= 0) {
+        const base = Math.atan2(this.aimY, this.aimX);
+        for (let i = -2; i <= 2; i++) {
+          const a = base + i * 0.18;
+          this.fireProjectile(Math.cos(a), Math.sin(a), this.doubleVolleyDmg * 1.2, "arrow");
+        }
+      }
+    }
     if (this.lifeStealBuff > 0) this.lifeStealBuff -= dt;
     if (this.playerSlow > 0) this.playerSlow -= dt;
     if (this.playerSnare > 0) this.playerSnare -= dt;
@@ -1090,14 +1103,15 @@ export class Engine {
       }
       // ---- Archer ----
       case "multishot": {
-        // double volley: fires 2 waves of 5 arrows each, increased damage
-        for (let v = 0; v < 2; v++) {
-          const base = Math.atan2(this.aimY, this.aimX);
-          for (let i = -2; i <= 2; i++) {
-            const a = base + i * 0.18;
-            this.fireProjectile(Math.cos(a), Math.sin(a), dmg * 1.2, "arrow");
-          }
+        // volley 1: fire 5 arrows now
+        const base = Math.atan2(this.aimY, this.aimX);
+        for (let i = -2; i <= 2; i++) {
+          const a = base + i * 0.18;
+          this.fireProjectile(Math.cos(a), Math.sin(a), dmg * 1.2, "arrow");
         }
+        // schedule volley 2 after 0.2s
+        this.doubleVolleyTimer = 0.2;
+        this.doubleVolleyDmg = dmg;
         break;
       }
       case "rapidfire": {
