@@ -60,7 +60,8 @@
     <textarea id="out" readonly></textarea>
     <div class="hint">
       <span class="swatch" style="background:#3a4250"></span>obstacle (solid)
-      <span class="swatch" style="background:#ff3a3a"></span>hazard (damage)
+      <span class="swatch" style="background:#ff3a3a"></span>hazard (damage)<br>
+      <b>Workflow:</b> Export → Download JSON → save ke <code>lib/game/rooms/custom/</code> → <code>npm run gen-templates</code>
     </div>
   </div>
 </div>
@@ -113,9 +114,10 @@ document.getElementById('reset').onclick=()=>{ if(confirm('Reset room?')){ model
 document.getElementById('exportBtn').onclick=exportTpl;
 document.getElementById('copyBtn').onclick=()=>{ out.select(); document.execCommand('copy'); };
 document.getElementById('dlBtn').onclick=()=>{
-  const blob=new Blob([out.value],{type:'text/plain'});
+  const id=document.getElementById('tplId').value||'room';
+  const blob=new Blob([out.value],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-  a.download='room_'+document.getElementById('tplId').value+'.txt'; a.click(); URL.revokeObjectURL(a.href);
+  a.download=id+'.json'; a.click(); URL.revokeObjectURL(a.href);
 };
 document.querySelectorAll('.door').forEach(d=>{ d.onchange=()=>{ doors[d.dataset.d]=d.checked; draw(); exportTpl(); }; });
 
@@ -180,13 +182,8 @@ const out=document.getElementById('out');
 function exportTpl(){
   const id=document.getElementById('tplId').value||'room';
   const need=['n','e','s','w'].filter(d=>doors[d]);
-  const fmt=r=>'{ x: '+r.x+', y: '+r.y+', w: '+r.w+', h: '+r.h+' }';
-  let s='{\n  id: "'+id+'",\n  obstacles: [';
-  s+= model.obstacles.length ? '\n'+model.obstacles.map(o=>'    '+fmt(o)+',').join('\n')+'\n  ' : '';
-  s+='],\n  hazards: [';
-  s+= model.hazards.length ? '\n'+model.hazards.map(o=>'    '+fmt(o)+',').join('\n')+'\n  ' : '';
-  s+='],\n  needDoors: ['+need.map(d=>'"'+d+'"').join(', ')+'],\n},';
-  out.value=s;
+  const data={ id, obstacles:model.obstacles.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})), hazards:model.hazards.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})), needDoors:need };
+  out.value=JSON.stringify(data,null,2);
 }
 
 function save(){ localStorage.setItem('room_editor', JSON.stringify(model)); }
