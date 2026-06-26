@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>West Village Layout Editor</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #15161a; color: #ddd; font-family: ui-monospace, monospace; padding: 16px; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  .wrap { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  canvas { background: #000; image-rendering: pixelated; border: 1px solid #444; cursor: crosshair; }
+  .side { width: 360px; font-size: 12px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  button { background: #2a2c33; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  button:hover { background: #34373f; }
+  button.active { background: #3a5a8a; border-color: #5a8aca; }
+  button.danger:hover { background: #6a2a2a; }
+  label.chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .sel { background: #1c1d22; border: 1px solid #383a42; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+  .sel h3 { margin: 0 0 8px; font-size: 12px; color: #9cf; }
+  .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 5px 8px; align-items: center; }
+  .grid2 input { width: 100%; background: #0e0f12; color: #ddd; border: 1px solid #383a42; padding: 3px 5px; border-radius: 4px; font-family: inherit; }
+  .grid2 input[type=text] { font-size: 11px; }
+  textarea { width: 100%; height: 260px; background: #0e0f12; color: #8fd; border: 1px solid #383a42; border-radius: 6px; padding: 8px; font-family: inherit; font-size: 11px; resize: vertical; }
+  .hint { color: #888; font-size: 11px; line-height: 1.5; margin: 6px 0; }
+  .swatch { display: inline-block; width: 11px; height: 11px; vertical-align: middle; margin-right: 5px; border: 1px solid #555; }
+  .tag { display:inline-block; padding:1px 6px; border-radius:3px; font-size:10px; margin-left:6px; }
+  hr { border: none; border-top: 1px solid #333; margin: 10px 0; }
+</style>
+</head>
+<body>
+<h1>West Village Layout Editor — world 1280×800 · grid 40px · scale 0.5</h1>
+<div class="wrap">
+  <div>
+    <canvas id="c" width="640" height="400"></canvas>
+    <div class="hint">
+      <b id="modeLabel">SELECT</b> mode · Click to select · Drag to move · Drag corner handle to resize ·
+      <label class="chk"><input type="checkbox" id="snap" checked> Snap to grid (40)</label>
+    </div>
+    <div class="bar">
+      <button id="modeSelect" class="active">✋ Select</button>
+      <button id="modePaint">🖌 Paint terrain</button>
+    </div>
+    <div class="bar" id="paintBar" style="display:none">
+      <button class="brush active" data-t="grass" style="border-left:4px solid #3a6a3a">Grass</button>
+      <button class="brush" data-t="brick" style="border-left:4px solid #8a7a5a">Brick</button>
+      <button class="brush" data-t="water" style="border-left:4px solid #3a6a9a">Water</button>
+      <button class="brush" data-t="erase" style="border-left:4px solid #555">Erase→Grass</button>
+      <label class="chk">Brush <select id="brushSize"><option value="1">1×1</option><option value="2">2×2</option><option value="3">3×3</option></select></label>
+      <button id="clearTerrain" class="danger">Clear terrain</button>
+    </div>
+    <div class="bar">
+      <button id="addHome">+ House</button>
+      <button id="addWell">+ Well/Box</button>
+      <button id="addNpc">+ NPC</button>
+      <button id="addPlaza">+ Plaza</button>
+      <button id="dup">Duplicate</button>
+      <button id="del" class="danger">Delete</button>
+      <button id="reset" class="danger">Reset</button>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="sel" id="selPanel">
+      <h3>No selection</h3>
+      <div class="hint">Select an item on the canvas to edit its properties.</div>
+    </div>
+
+    <div class="bar">
+      <button id="exportBtn" class="active">Export west_village.ts coords</button>
+      <button id="copyBtn">Copy</button>
+      <button id="downloadBtn">⬇ Download JSON</button>
+    </div>
+    <textarea id="out" readonly></textarea>
+
+    <hr>
+    <div class="hint">
+      <span class="swatch" style="background:#7a5a3a"></span>house &nbsp;
+      <span class="swatch" style="background:#6a6a6a"></span>well/box &nbsp;
+      <span class="swatch" style="background:#8a7a5a"></span>plaza<br>
+      <span class="swatch" style="background:#ffd24a"></span>npc &nbsp;
+      <span class="swatch" style="background:#ff9a4a"></span>guide &nbsp;
+      <span class="swatch" style="background:#5fff8f"></span>spawn
+    </div>
+  </div>
+</div>
+
+<script>
+const SCALE = 0.5, GRID = 40, W = 1280, H = 800;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const snapEl = document.getElementById('snap');
+
+const COLS = W/GRID, ROWS = H/GRID; // 32 x 20 tile grid
+const TERRAIN = {
+  grass: { fill:'#3a6a3a', alt:'#347a34' },
+  brick: { fill:'#8a7a5a', alt:'#7d6e50' },
+  water: { fill:'#3a6a9a', alt:'#356392' },
+};
+
+// ---------- model ----------
+// kinds: house, box(well), npc, guide, spawn, plaza
+function emptyTerrain(){
+  // 2D array [row][col] of terrain key; default all grass
+  return Array.from({length:ROWS}, ()=> Array.from({length:COLS}, ()=> 'grass'));
+}
+function defaultModel(){
+  return {
+    terrain: emptyTerrain(),
+    plazas: [
+      { id:'main',      kind:'plaza', x:160, y:320, w:960, h:320 },
+      { id:'exit_road', kind:'plaza', x:1000, y:440, w:280, h:80 },
+    ],
+    buildings: [
+      { id:'HOME1', kind:'house', x:200, y:240, w:160, h:120, drawSize:180 },
+      { id:'HOME2', kind:'house', x:560, y:240, w:160, h:120, drawSize:180 },
+      { id:'HOME3', kind:'house', x:920, y:240, w:160, h:120, drawSize:180 },
+      { id:'WELL',  kind:'box',   x:600, y:480, w:40,  h:40,  drawSize:60  },
+    ],
+    npcs: [
+      { id:'wv_guide', kind:'guide', name:'Road Guide', x:1200, y:480 },
+      { id:'wv_a', kind:'npc', name:'Aldric',  x:300, y:420 },
+      { id:'wv_b', kind:'npc', name:'Mira',    x:520, y:560 },
+      { id:'wv_c', kind:'npc', name:'Jonas',   x:240, y:600 },
+      { id:'wv_d', kind:'npc', name:'Bridget', x:760, y:420 },
+      { id:'wv_e', kind:'npc', name:'Owen',    x:420, y:600 },
+      { id:'wv_f', kind:'npc', name:'Tara',    x:880, y:540 },
+    ],
+    spawn: { id:'spawn', kind:'spawn', x:1250, y:480 },
+  };
+}
+let model = load() || defaultModel();
+if(!model.terrain) model.terrain = emptyTerrain(); // migrate older saves
+let sel = null; // reference to selected object
+let drag = null; // { obj, mode:'move'|'resize', dx, dy }
+
+// ---------- editor mode + paint ----------
+let editMode = 'select'; // 'select' | 'paint'
+let brush = 'grass';
+let painting = false;
+const modeLabel = document.getElementById('modeLabel');
+const paintBar = document.getElementById('paintBar');
+const brushSizeEl = document.getElementById('brushSize');
+document.getElementById('modeSelect').onclick = ()=>setMode('select');
+document.getElementById('modePaint').onclick = ()=>setMode('paint');
+function setMode(m){
+  editMode = m;
+  document.getElementById('modeSelect').classList.toggle('active', m==='select');
+  document.getElementById('modePaint').classList.toggle('active', m==='paint');
+  paintBar.style.display = m==='paint' ? 'flex' : 'none';
+  modeLabel.textContent = m.toUpperCase();
+  cv.style.cursor = m==='paint' ? 'cell' : 'crosshair';
+  draw();
+}
+document.querySelectorAll('.brush').forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll('.brush').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    brush = b.dataset.t;
+  };
+});
+document.getElementById('clearTerrain').onclick = ()=>{
+  if(confirm('Reset all terrain to grass?')){ model.terrain = emptyTerrain(); save(); draw(); exportCode(); }
+};
+function paintAt(mx, my){
+  const col = Math.floor(mx/GRID), row = Math.floor(my/GRID);
+  const n = Number(brushSizeEl.value);
+  const t = brush==='erase' ? 'grass' : brush;
+  for(let dr=0; dr<n; dr++) for(let dc=0; dc<n; dc++){
+    const r = row+dr, c = col+dc;
+    if(r>=0 && r<ROWS && c>=0 && c<COLS) model.terrain[r][c] = t;
+  }
+}
+
+// ---------- helpers ----------
+function snap(v){ return snapEl.checked ? Math.round(v/GRID)*GRID : Math.round(v); }
+function allObjs(){ return [...model.plazas, ...model.buildings, ...model.npcs, model.spawn]; }
+function isRect(o){ return o.kind==='house'||o.kind==='box'||o.kind==='plaza'; }
+function isPoint(o){ return o.kind==='npc'||o.kind==='guide'||o.kind==='spawn'; }
+
+function hit(mx, my){
+  // point objects first (smaller), then rects topmost-last
+  const pts = [...model.npcs, model.spawn];
+  for(let i=pts.length-1;i>=0;i--){
+    const o=pts[i]; const d=Math.hypot(o.x-mx,o.y-my);
+    if(d<18) return o;
+  }
+  const rects = [...model.buildings, ...model.plazas];
+  for(let i=rects.length-1;i>=0;i--){
+    const o=rects[i];
+    if(mx>=o.x && mx<=o.x+o.w && my>=o.y && my<=o.y+o.h) return o;
+  }
+  return null;
+}
+function resizeHandle(o, mx, my){
+  if(!isRect(o)) return false;
+  return Math.hypot((o.x+o.w)-mx, (o.y+o.h)-my) < 18;
+}
+
+// ---------- mouse ----------
+function toWorld(e){
+  const r = cv.getBoundingClientRect();
+  return { x:(e.clientX-r.left)/SCALE, y:(e.clientY-r.top)/SCALE };
+}
+cv.addEventListener('mousedown', e=>{
+  const {x,y}=toWorld(e);
+  if(editMode==='paint'){
+    painting = true;
+    paintAt(x,y); draw();
+    return;
+  }
+  if(sel && resizeHandle(sel, x, y)){
+    drag = { obj:sel, mode:'resize' };
+    return;
+  }
+  const o = hit(x,y);
+  sel = o;
+  if(o){
+    drag = { obj:o, mode:'move', dx:x-o.x, dy:y-o.y };
+  }
+  renderPanel(); draw();
+});
+window.addEventListener('mousemove', e=>{
+  if(editMode==='paint' && painting){
+    const {x,y}=toWorld(e);
+    paintAt(x,y); draw();
+    return;
+  }
+  if(!drag) return;
+  const {x,y}=toWorld(e);
+  const o=drag.obj;
+  if(drag.mode==='move'){
+    o.x = snap(x-(drag.dx||0));
+    o.y = snap(y-(drag.dy||0));
+    o.x = Math.max(0, Math.min(W-(o.w||0), o.x));
+    o.y = Math.max(0, Math.min(H-(o.h||0), o.y));
+  } else {
+    o.w = Math.max(GRID, snap(x-o.x));
+    o.h = Math.max(GRID, snap(y-o.y));
+  }
+  renderPanel(); draw(); save();
+});
+window.addEventListener('mouseup', ()=>{
+  if(painting){ painting=false; save(); exportCode(); }
+  if(drag){ save(); }
+  drag=null;
+});
+
+// ---------- buttons ----------
+let nid=100;
+function uid(p){ return p+(nid++); }
+document.getElementById('addHome').onclick=()=>{ const o={id:'HOME'+(model.buildings.filter(b=>b.kind==='house').length+1), kind:'house', x:200,y:200,w:160,h:120,drawSize:180}; model.buildings.push(o); sel=o; sync(); };
+document.getElementById('addWell').onclick=()=>{ const o={id:uid('BOX'), kind:'box', x:600,y:400,w:40,h:40,drawSize:60}; model.buildings.push(o); sel=o; sync(); };
+document.getElementById('addNpc').onclick=()=>{ const o={id:uid('wv_'), kind:'npc', name:'Villager', x:640,y:400}; model.npcs.push(o); sel=o; sync(); };
+document.getElementById('addPlaza').onclick=()=>{ const o={id:uid('plaza'), kind:'plaza', x:200,y:200,w:320,h:200}; model.plazas.push(o); sel=o; sync(); };
+document.getElementById('dup').onclick=()=>{ if(!sel||sel.kind==='spawn')return; const c=JSON.parse(JSON.stringify(sel)); c.id=uid(sel.kind+'_'); c.x+=GRID; c.y+=GRID; (sel.kind==='plaza'?model.plazas:isPoint(sel)?model.npcs:model.buildings).push(c); sel=c; sync(); };
+document.getElementById('del').onclick=()=>{ if(!sel||sel.kind==='spawn')return; remove(sel); sel=null; sync(); };
+document.getElementById('reset').onclick=()=>{ if(confirm('Reset to default layout?')){ model=defaultModel(); sel=null; sync(); } };
+document.getElementById('exportBtn').onclick=exportCode;
+document.getElementById('copyBtn').onclick=()=>{ out.select(); document.execCommand('copy'); };
+document.getElementById('downloadBtn').onclick=()=>{
+  const blob = new Blob([JSON.stringify(model,null,2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'wv_layout.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+function remove(o){
+  model.plazas = model.plazas.filter(x=>x!==o);
+  model.buildings = model.buildings.filter(x=>x!==o);
+  model.npcs = model.npcs.filter(x=>x!==o);
+}
+function sync(){ renderPanel(); draw(); save(); exportCode(); }
+
+// ---------- property panel ----------
+const selPanel = document.getElementById('selPanel');
+function field(label, val, on, type='number'){
+  const id='f_'+label;
+  return `<label for="${id}">${label}</label><input id="${id}" type="${type}" value="${val}">`;
+}
+function renderPanel(){
+  if(!sel){ selPanel.innerHTML=`<h3>No selection</h3><div class="hint">Select an item to edit.</div>`; return; }
+  const o=sel;
+  let rows = field('x', o.x) + field('y', o.y);
+  if(isRect(o)) rows += field('w', o.w) + field('h', o.h);
+  if(o.drawSize!==undefined) rows += field('drawSize', o.drawSize);
+  if(o.name!==undefined) rows += field('name', o.name, null, 'text');
+  rows += field('id', o.id, null, 'text');
+  selPanel.innerHTML = `<h3>${o.kind.toUpperCase()} <span class="tag" style="background:#333">${o.id}</span></h3><div class="grid2">${rows}</div>`;
+  // wire inputs
+  for(const key of ['x','y','w','h','drawSize','name','id']){
+    const inp=document.getElementById('f_'+key);
+    if(!inp) continue;
+    inp.onchange=()=>{
+      o[key] = (key==='name'||key==='id') ? inp.value : Number(inp.value);
+      draw(); save(); exportCode();
+    };
+  }
+}
+
+// ---------- draw ----------
+function r(x,y,w,h){ ctx.fillRect(x*SCALE,y*SCALE,w*SCALE,h*SCALE); }
+function txt(s,x,y,c,size=9){ ctx.fillStyle=c; ctx.font=size+'px monospace'; ctx.textAlign='center'; ctx.fillText(s,x*SCALE,y*SCALE); }
+function draw(){
+  // terrain layer (per-tile, checker shading)
+  for(let row=0;row<ROWS;row++) for(let col=0;col<COLS;col++){
+    const t = TERRAIN[model.terrain[row][col]] || TERRAIN.grass;
+    const checker = ((col+row)%2<1);
+    ctx.fillStyle = checker ? t.alt : t.fill;
+    r(col*GRID, row*GRID, GRID, GRID);
+  }
+  // grid
+  ctx.strokeStyle='rgba(255,255,255,0.06)'; ctx.lineWidth=1;
+  for(let x=0;x<=W;x+=GRID){ ctx.beginPath(); ctx.moveTo(x*SCALE,0); ctx.lineTo(x*SCALE,H*SCALE); ctx.stroke(); }
+  for(let y=0;y<=H;y+=GRID){ ctx.beginPath(); ctx.moveTo(0,y*SCALE); ctx.lineTo(W*SCALE,y*SCALE); ctx.stroke(); }
+
+  // plazas (semi-transparent so terrain shows through; plaza = logical brick zone)
+  for(const p of model.plazas){
+    ctx.globalAlpha=0.45; ctx.fillStyle='#8a7a5a'; r(p.x,p.y,p.w,p.h); ctx.globalAlpha=1;
+    ctx.strokeStyle='#6a5a3a'; ctx.lineWidth=1; ctx.strokeRect(p.x*SCALE,p.y*SCALE,p.w*SCALE,p.h*SCALE);
+    txt(p.id,p.x+p.w/2,p.y+14,'#3a2e1a',8);
+  }
+  // buildings
+  for(const b of model.buildings){
+    ctx.fillStyle = b.kind==='box'?'#6a6a6a':'#7a5a3a'; r(b.x,b.y,b.w,b.h);
+    ctx.fillStyle = b.kind==='box'?'#4a4a4a':'#5a3a1a'; r(b.x,b.y,b.w,8);
+    txt(b.id,b.x+b.w/2,b.y+b.h/2,'#fff',8);
+  }
+  // npcs
+  for(const n of model.npcs){
+    const c = n.kind==='guide'?'#ff9a4a':'#ffd24a';
+    ctx.fillStyle=c; ctx.beginPath(); ctx.arc(n.x*SCALE,n.y*SCALE,4,0,Math.PI*2); ctx.fill();
+    txt(n.name||n.id,n.x,n.y-8,c,8);
+  }
+  // spawn
+  ctx.fillStyle='#5fff8f'; ctx.beginPath(); ctx.arc(model.spawn.x*SCALE,model.spawn.y*SCALE,5,0,Math.PI*2); ctx.fill();
+  txt('SPAWN',model.spawn.x,model.spawn.y+15,'#5fff8f',8);
+
+  // selection highlight + resize handle
+  if(sel){
+    ctx.strokeStyle='#5cf'; ctx.lineWidth=2;
+    if(isRect(sel)){
+      ctx.strokeRect(sel.x*SCALE,sel.y*SCALE,sel.w*SCALE,sel.h*SCALE);
+      ctx.fillStyle='#5cf';
+      ctx.fillRect((sel.x+sel.w)*SCALE-4,(sel.y+sel.h)*SCALE-4,8,8);
+    } else {
+      ctx.beginPath(); ctx.arc(sel.x*SCALE,sel.y*SCALE,8,0,Math.PI*2); ctx.stroke();
+    }
+  }
+  ctx.strokeStyle='#888'; ctx.lineWidth=1; ctx.strokeRect(0,0,W*SCALE,H*SCALE);
+}
+
+// ---------- export ----------
+const out = document.getElementById('out');
+function exportCode(){
+  const homes = model.buildings.filter(b=>b.kind==='house');
+  const boxes = model.buildings.filter(b=>b.kind==='box');
+  const guide = model.npcs.find(n=>n.kind==='guide');
+  const wanderers = model.npcs.filter(n=>n.kind==='npc');
+
+  let s = '// ---- paste into lib/game/maps/west_village.ts ----\n\n';
+  s += 'const buildings: Building[] = [\n';
+  for(const h of homes){
+    s += `  { x: ${h.x}, y: ${h.y}, w: ${h.w}, h: ${h.h}, color: "#7a5a3a", roof: "#5a3a1a",\n`;
+    s += `    asset: "/sprites/building/villager-home/villager-home-?_keyed.png",\n`;
+    s += `    drawSize: ${h.drawSize||180}, drawHeight: 150, label: "${h.id}" },\n`;
+  }
+  for(const b of boxes){
+    s += `  { x: ${b.x}, y: ${b.y}, w: ${b.w}, h: ${b.h}, color: "#6a6a6a", roof: "#4a4a4a",\n`;
+    s += `    asset: "", drawSize: ${b.drawSize||60}, label: "${b.id}" },\n`;
+  }
+  s += '];\n\n';
+
+  if(guide){
+    s += '// Road Guide NPC\n';
+    s += `// { id: "${guide.id}", name: "${guide.name}", x: ${guide.x}, y: ${guide.y}, ... }\n\n`;
+  }
+
+  s += 'const pngWanderers = [\n';
+  wanderers.forEach((w,i)=>{
+    s += `  { id: "${w.id}", name: "${w.name}", asset: "...", drawSize: 52, x: ${w.x}, y: ${w.y}, radius: 100, speed: 32 },\n`;
+  });
+  s += '];\n\n';
+
+  s += `// spawn\nspawnX: ${model.spawn.x}, spawnY: ${model.spawn.y},\n\n`;
+
+  s += 'plazas: [\n';
+  for(const p of model.plazas){
+    s += `  { x: ${p.x}, y: ${p.y}, w: ${p.w}, h: ${p.h} },  // ${p.id}\n`;
+  }
+  s += '],\n\n';
+
+  // terrain: run-length compress to rects per type (greedy row merge)
+  s += '// ---- terrain tiles (32x20 grid, 40px cells) ----\n';
+  const counts = { grass:0, brick:0, water:0 };
+  for(let row=0;row<ROWS;row++) for(let col=0;col<COLS;col++) counts[model.terrain[row][col]]++;
+  s += `// tile counts: grass=${counts.grass} brick=${counts.brick} water=${counts.water}\n`;
+  // export non-grass tiles as rect list (brick + water), grass is the default background
+  const rects = terrainRects(['brick','water']);
+  s += 'terrainRects: [\n';
+  for(const t of ['brick','water']){
+    for(const rc of rects[t]){
+      s += `  { type: "${t}", x: ${rc.x}, y: ${rc.y}, w: ${rc.w}, h: ${rc.h} },\n`;
+    }
+  }
+  s += '],\n';
+
+  out.value = s;
+}
+
+// greedy rectangle merge for each terrain type (grass excluded = default)
+function terrainRects(types){
+  const result = {};
+  for(const type of types){
+    const used = Array.from({length:ROWS}, ()=> new Array(COLS).fill(false));
+    const rects = [];
+    for(let row=0;row<ROWS;row++) for(let col=0;col<COLS;col++){
+      if(model.terrain[row][col]!==type || used[row][col]) continue;
+      // extend width
+      let w=1;
+      while(col+w<COLS && model.terrain[row][col+w]===type && !used[row][col+w]) w++;
+      // extend height while full row-span matches
+      let h=1;
+      outer: while(row+h<ROWS){
+        for(let c=col;c<col+w;c++){ if(model.terrain[row+h][c]!==type || used[row+h][c]){ break outer; } }
+        h++;
+      }
+      for(let dr=0;dr<h;dr++) for(let dc=0;dc<w;dc++) used[row+dr][col+dc]=true;
+      rects.push({ x:col*GRID, y:row*GRID, w:w*GRID, h:h*GRID });
+    }
+    result[type]=rects;
+  }
+  return result;
+}
+
+// ---------- persistence ----------
+function save(){ localStorage.setItem('wv_layout', JSON.stringify(model)); }
+function load(){ try{ const s=localStorage.getItem('wv_layout'); return s?JSON.parse(s):null; }catch{ return null; } }
+
+snapEl.onchange=()=>draw();
+sync();
+</script>
+</body>
+</html>
