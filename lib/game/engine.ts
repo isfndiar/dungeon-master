@@ -1825,6 +1825,48 @@ export class Engine {
         this.float("TENTACLE SWEEP!", boss.x, boss.y - 30, "#6a3a8a");
         break;
       }
+      case "deepCrush": {
+        const radius = t === 1 ? 100 : t === 2 ? 130 : 160;
+        this.spawnExplosion(boss.x, boss.y, radius, 0.6, 1.5, "#2a4a6a", boss, 20, true, "#1a2a4a");
+        const count = t === 1 ? 4 : 6;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2;
+          const tx = clamp(boss.x + Math.cos(ang) * 70, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(boss.y + Math.sin(ang) * 70, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.spawnExplosion(tx, ty, 35, 0.8, 0.8, "#6a3a8a", boss);
+        }
+        this.spawnRing(boss.x, boss.y, "#2a4a6a", radius);
+        this.float("DEEP CRUSH!", boss.x, boss.y - 30, "#2a4a6a");
+        break;
+      }
+      case "krakensGrasp": {
+        const count = t === 1 ? 2 : t === 2 ? 3 : 4;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2 + rand(-0.3, 0.3);
+          const off = 40 + rand(0, 20);
+          this.spawnMini("anglerfish",
+            boss.x + Math.cos(ang) * off,
+            boss.y + Math.sin(ang) * off,
+            Math.round(boss.maxHp * 0.06), Math.round(boss.dmg * 0.4), 14);
+        }
+        this.spawnRing(boss.x, boss.y, "#2a4a6a", 50);
+        this.float("KRAKEN'S GRASP!", boss.x, boss.y - 30, "#2a4a6a");
+        break;
+      }
+      case "abyssalSurge": {
+        const count = t === 1 ? 8 : t === 2 ? 12 : 16;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2;
+          const off = rand(40, 100);
+          const tx = clamp(boss.x + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(boss.y + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.spawnExplosion(tx, ty, 30, 0.2 + i * 0.08, 0.7, "#1a3a5a", boss, 0, true, "#2a4a6a");
+        }
+        this.spawnExplosion(boss.x, boss.y, 60, 0.5, 1.2, "#2a4a6a", boss, 15, true, "#1a2a4a");
+        this.spawnRing(boss.x, boss.y, "#5ac8ff", 100);
+        this.float("ABYSSAL SURGE!", boss.x, boss.y - 30, "#5ac8ff");
+        break;
+      }
     }
   }
 
