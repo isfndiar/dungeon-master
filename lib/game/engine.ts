@@ -2087,6 +2087,13 @@ export class Engine {
         life: 0.6, color: i % 2 === 0 ? h.color : "#ffd24a",
       });
     }
+    // damage enemies in radius
+    for (const e of this.enemies) {
+      if (dist(e.x, e.y, h.x, h.y) < h.radius + e.size * 0.4) {
+        this.damageEnemy(e, h.dmg);
+      }
+    }
+    // damage player
     if (dist(this.px, this.py, h.x, h.y) < h.radius) {
       this.damagePlayer(h.dmg);
       // knockback (bounceSlam, eruption tier 2+)
