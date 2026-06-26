@@ -67,6 +67,7 @@ interface Projectile {
   hitSet2?: Set<Enemy>;    // swords can hit a few enemies each
   hitsLeft?: number;       // remaining hits for a homing sword
   tint?: string;           // optional color tint for boss spells
+  wallPass?: boolean;      // passes through obstacles (snipe)
 }
 
 interface HazardAoE {
@@ -263,6 +264,7 @@ export class Engine {
   private rapidFire = 0;    // seconds remaining of attack-speed buff
   private doubleVolleyTimer = 0; // delayed second volley countdown
   private doubleVolleyDmg = 0;  // cached damage for delayed volley
+  private dodgeTimer = 0;      // seconds remaining of dodge (auto-miss incoming hits)
   private healZoneTime = 0; // sanctuary remaining
   private healZoneX = 0; private healZoneY = 0;
   // knight lifesteal: heals a % of max HP on kill. War Cry boosts it.
@@ -832,6 +834,7 @@ export class Engine {
         }
       }
     }
+    if (this.dodgeTimer > 0) this.dodgeTimer -= dt;
     if (this.lifeStealBuff > 0) this.lifeStealBuff -= dt;
     if (this.playerSlow > 0) this.playerSlow -= dt;
     if (this.playerSnare > 0) this.playerSnare -= dt;
@@ -1121,8 +1124,11 @@ export class Engine {
         break;
       }
       case "snipe": {
-        // piercing shot only
-        this.firePiercing(this.aimX, this.aimY, dmg * 4, "arrow");
+        // piercing shot that passes through walls + grants 3s dodge
+        this.firePiercing(this.aimX, this.aimY, dmg * 4, "arrow", true);
+        this.dodgeTimer = 3;
+        this.float("DODGE", this.px, this.py - 18, "#7ab8ff");
+        this.spawnRing(this.px, this.py, "#7ab8ff", 24);
         break;
       }
     }
@@ -1137,12 +1143,12 @@ export class Engine {
     });
   }
 
-  private firePiercing(dx: number, dy: number, dmg: number, kind: "fireball" | "arrow" | "bolt") {
+  private firePiercing(dx: number, dy: number, dmg: number, kind: "fireball" | "arrow" | "bolt", wallPass = false) {
     this.projectiles.push({
       x: this.px + dx * 12, y: this.py + dy * 12,
       vx: dx * 380, vy: dy * 380,
       dmg, from: "player", kind, life: 1.4, radius: 6,
-      pierce: true, hitSet: new Set<Enemy>(), big: true,
+      pierce: true, hitSet: new Set<Enemy>(), big: true, wallPass,
     });
   }
 
@@ -2399,7 +2405,7 @@ export class Engine {
       // walls + obstacles
       if (p.x < FIELD.x || p.x > FIELD.x + FIELD.w || p.y < FIELD.y || p.y > FIELD.y + FIELD.h) {
         p.life = 0;
-      } else if (this.inObstacle(p.x, p.y, p.radius)) {
+      } else if (!p.wallPass && this.inObstacle(p.x, p.y, p.radius)) {
         p.life = 0;
       }
     }
@@ -2536,6 +2542,12 @@ export class Engine {
 
   private damagePlayer(dmg: number) {
     if (this.invuln > 0) return;
+    // dodge: auto-miss all incoming hits
+    if (this.dodgeTimer > 0) {
+      this.float("DODGE", this.px, this.py - 16, "#7ab8ff");
+      this.invuln = 0.15;
+      return;
+    }
     if (this.heroId === "tank") {
       // tank passive: 25% flat damage reduction
       dmg = Math.round(dmg * 0.75);
