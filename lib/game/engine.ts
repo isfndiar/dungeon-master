@@ -1788,6 +1788,43 @@ export class Engine {
         this.float("BUBBLE RING!", boss.x, boss.y - 30, "#5ac8ff");
         break;
       }
+      case "inkCloud": {
+        const count = t === 1 ? 4 : t === 2 ? 7 : 10;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 100);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.spawnPoolAt(tx, ty, 26, 5, Math.round(boss.dmg * 0.35), 0.5, 2, false, 0, "#2a4a6a", "ink", 0.4);
+        }
+        this.float("INK CLOUD!", boss.x, boss.y - 30, "#2a4a6a");
+        break;
+      }
+      case "whirlpool": {
+        const count = t === 1 ? 3 : t === 2 ? 5 : 7;
+        const spread = t === 1 ? 40 : 60;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2;
+          const tx = clamp(this.px + Math.cos(ang) * spread, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * spread, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          this.spawnPoolAt(tx, ty, 24, 4, Math.round(boss.dmg * 0.25), 0.3, 1, true, 1.5, "#1a3a5a", "ink", 0.5);
+        }
+        this.float("WHIRLPOOL!", boss.x, boss.y - 30, "#1a3a5a");
+        break;
+      }
+      case "tentacleSweep": {
+        const count = t === 1 ? 6 : t === 2 ? 9 : 12;
+        for (let i = 0; i < count; i++) {
+          const ang = (i / count) * Math.PI * 2 + rand(-0.2, 0.2);
+          const off = rand(30, 80);
+          const tx = clamp(boss.x + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(boss.y + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = 0.3 + i * 0.1;
+          this.spawnExplosion(tx, ty, 40, tele, 0.9, "#6a3a8a", boss, 0, true, "#2a4a6a");
+        }
+        this.float("TENTACLE SWEEP!", boss.x, boss.y - 30, "#6a3a8a");
+        break;
+      }
     }
   }
 
