@@ -4,6 +4,18 @@ import type { RoomTemplate } from "./types";
 // To add a room: save JSON to lib/game/rooms/custom/<id>.json, then run: npm run gen-templates
 export const ROOM_TEMPLATES: RoomTemplate[] = [
   {
+    id: "coral_reef",
+    obstacles: [
+      { x: 60, y: 60, w: 32, h: 32 },
+      { x: 160, y: 100, w: 40, h: 24 },
+      { x: 320, y: 60, w: 32, h: 32 },
+      { x: 400, y: 140, w: 24, h: 40 },
+    ],
+    hazards: [
+      { x: 200, y: 40, w: 80, h: 40 },
+    ],
+  },
+  {
     id: "corner_pits",
     obstacles: [],
     hazards: [
@@ -32,6 +44,16 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     ],
   },
   {
+    id: "room2",
+    obstacles: [
+      { x: 112, y: 48, w: 40, h: 208 },
+      { x: 152, y: 48, w: 288, h: 24 },
+    ],
+    hazards: [
+      { x: 152, y: 112, w: 232, h: 48 },
+    ],
+  },
+  {
     id: "side_walls",
     obstacles: [
       { x: 120, y: 40, w: 24, h: 70 },
@@ -39,6 +61,16 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
     ],
     hazards: [
       { x: 150, y: 200, w: 56, h: 30 },
+    ],
+  },
+  {
+    id: "whirlpool",
+    obstacles: [
+      { x: 100, y: 80, w: 28, h: 80 },
+      { x: 352, y: 100, w: 28, h: 80 },
+    ],
+    hazards: [
+      { x: 180, y: 100, w: 120, h: 80 },
     ],
   },
 ];
