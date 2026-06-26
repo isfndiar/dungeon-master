@@ -140,6 +140,7 @@ interface Enemy {
   shieldMax: number;           // shield value on each restore
   breakTimer: number;          // countdown of break window while broken
   phaseFlash: number;          // 0..1 visual flash on break/phase change
+  taunted: number;             // seconds remaining: forced to move toward player (berserk wave)
 }
 
 interface FloatText { x: number; y: number; text: string; life: number; color: string; }
@@ -471,7 +472,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: def.gold, xp: def.xp,
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0, taunted: 0,
     });
   }
 
@@ -492,7 +493,7 @@ export class Engine {
       gold: def.gold, xp: def.xp,
       isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
       phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
-      bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0,
+      bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0, taunted: 0,
     });
     this.bossSpellTimer = this.pickBossCooldown(pool);
   }
@@ -529,7 +530,7 @@ export class Engine {
           gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
           isBoss: true, hitFlash: 0, faceLeft: false, bob: 0, frozen: 0,
           phase: 1, spellPool: pool, castLock: 0, atkAnim: 0, castAnim: 0,
-          bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0,
+          bossState: "shielded", shield: shieldMax, shieldMax, breakTimer: 0, phaseFlash: 0, taunted: 0,
         });
         this.bossSpellTimer = this.pickBossCooldown(pool);
         this.float("BOSS WAVE!", VIEW_W / 2, VIEW_H / 2 - 30, "#ff3a1a");
@@ -562,7 +563,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0, taunted: 0,
     });
   }
 
@@ -580,7 +581,7 @@ export class Engine {
       sprite: monsterSprites[kind], spriteKey: "m_" + kind,
       gold: Math.round(def.gold * 0.3), xp: Math.round(def.xp * 0.3),
       isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
-      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0,
+      phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0, taunted: 0,
     });
   }
   private loop = (now: number) => {
@@ -1076,7 +1077,14 @@ export class Engine {
       case "berserk": {
         this.dmgBuff = 6; this.dmgBuffMult = 2.0;
         this.speedBuff = 6; this.speedBuffMult = 1.6;
-        this.spawnRing(this.px, this.py, "#ff3a1a", 40);
+        // shockwave: AoE damage + taunt enemies to approach player for 5s
+        for (const e of this.enemies) {
+          if (dist(e.x, e.y, this.px, this.py) < 100 + e.size * 0.4) {
+            this.damageEnemy(e, dmg * 1.2);
+            e.taunted = 5;
+          }
+        }
+        this.spawnRing(this.px, this.py, "#ff3a1a", 100);
         this.float("BERSERK!", this.px, this.py - 18, "#ff3a1a");
         break;
       }
@@ -1158,17 +1166,20 @@ export class Engine {
       if (e.hitFlash > 0) e.hitFlash -= dt;
       if (e.frozen > 0) e.frozen -= dt;
       const frozenSlow = e.frozen > 0 ? 0.25 : 1; // frozen enemies crawl
+      // taunt timer tick (berserk wave pull)
+      if (e.taunted > 0) e.taunted -= dt;
       // phase 3 boss = enraged: moves & basic-attacks faster
       const enrage = e.isBoss && e.phase === 3 ? 1.5 : 1;
-      const slow = frozenSlow * enrage;
+      const taunt = e.taunted > 0 ? 1.3 : 1;   // taunted enemies move faster toward player
+      const slow = frozenSlow * enrage * taunt;
       const dx = this.px - e.x, dy = this.py - e.y;
       const d = Math.hypot(dx, dy) || 1;
       e.faceLeft = dx < 0;
       // boss immobile during castLock or while broken (stunned, vulnerable)
       const locked = e.isBoss && (e.castLock > 0 || e.bossState === "broken");
 
-      const desired = e.ranged ? 110 : 0;
-      if (e.ranged) {
+      const desired = e.ranged && e.taunted <= 0 ? 110 : 0;
+      if (e.ranged && e.taunted <= 0) {
         // keep distance
         if (!locked) {
           let ex = 0, ey = 0;
@@ -3105,6 +3116,29 @@ export class Engine {
       ctx.translate(mx, my);
       ctx.rotate(Math.PI / 4);
       ctx.fillRect(-4, -4, 8, 8);
+      ctx.restore();
+    }
+    // taunt indicator: red ring below enemy + tether to player
+    if (e.taunted > 0) {
+      const ctx = this.ctx;
+      ctx.save();
+      const k = Math.min(1, e.taunted / 5);
+      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(performance.now() / 100);
+      ctx.strokeStyle = "#ff3a1a";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(Math.round(e.x), Math.round(e.y + e.size * 0.35), e.size * 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+      // tether line to player
+      ctx.globalAlpha = 0.2 * k;
+      ctx.strokeStyle = "#ff5a3a";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(e.x, e.y);
+      ctx.lineTo(this.px, this.py);
+      ctx.stroke();
+      ctx.setLineDash([]);
       ctx.restore();
     }
     // hp bar for non-boss
