@@ -2495,6 +2495,9 @@ export class Engine {
   private damagePlayer(dmg: number) {
     if (this.invuln > 0) return;
     if (this.heroId === "tank") {
+      // tank passive: 25% flat damage reduction
+      dmg = Math.round(dmg * 0.75);
+      // miss chance scales with missing HP (up to 50% at 0 HP)
       const missingRatio = 1 - this.php / this.phpMax;
       if (Math.random() < missingRatio * 0.5) {
         this.float("MISS", this.px, this.py - 16, "#7ab8ff");
