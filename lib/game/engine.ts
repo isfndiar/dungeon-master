@@ -12,6 +12,8 @@ import {
 import {
   generateMap, DungeonMap, RoomNode, Dir, DIRS, OPPOSITE, DELTA,
 } from "./map";
+import { pickTemplate } from "./rooms";
+import type { RoomRect } from "./rooms";
 import { Item, rollItem, rollRarity, ItemStats } from "./items";
 import {
   preloadHeroSprites, drawHeroDir, facingFromVec, Facing,
@@ -379,6 +381,17 @@ export class Engine {
   private enterRoom(room: RoomNode, fromDir: Dir | null) {
     this.curRoom = room;
     room.visited = true;
+    // assign a hand-designed interior template once (template dungeons only)
+    if (
+      this.dungeon.useTemplates &&
+      !room.isStart && !room.isBoss &&
+      room.obstacles === undefined
+    ) {
+      const openDoors = DIRS.filter((d) => room.doors[d]);
+      const tpl = pickTemplate(Math.random, openDoors);
+      room.obstacles = tpl ? tpl.obstacles : [];
+      room.hazards = tpl ? tpl.hazards : [];
+    }
     this.enemies = [];
     this.projectiles = [];
     this.hazards = [];
@@ -2278,6 +2291,7 @@ export class Engine {
 
     // carve out + draw doors (skip for endless)
     if (!this.isEndless) this.drawDoors();
+    if (!this.isEndless) this.drawRoomTerrain();
 
     // heal zone (sanctuary)
     if (this.healZoneTime > 0) {
@@ -2385,6 +2399,38 @@ export class Engine {
       // brief boss warning handled by boss bar; no banner spam
     } else if (this.curRoom.cleared && this.clearedTimer < 1.4 && !this.curRoom.isStart) {
       this.banner("Room Cleared!", "Doors open \u2014 pick a path");
+    }
+  }
+
+  private drawRoomTerrain() {
+    const ctx = this.ctx;
+    const obstacles = this.curRoom.obstacles;
+    const hazards = this.curRoom.hazards;
+    // hazards first (under obstacles), pulsing translucent danger zones
+    if (hazards && hazards.length) {
+      const pulse = 0.22 + Math.sin(performance.now() / 260) * 0.08;
+      for (const h of hazards) {
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = "#ff3a3a";
+        ctx.fillRect(h.x, h.y, h.w, h.h);
+        ctx.restore();
+        ctx.strokeStyle = "#ff6a6a";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(h.x + 0.5, h.y + 0.5, h.w - 1, h.h - 1);
+      }
+    }
+    // obstacles: solid blocks in the wall color with a lighter top edge
+    if (obstacles && obstacles.length) {
+      for (const o of obstacles) {
+        ctx.fillStyle = this.dungeon.wall;
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.fillStyle = shade(this.dungeon.wall, 0.18);
+        ctx.fillRect(o.x, o.y, o.w, 4);
+        ctx.strokeStyle = shade(this.dungeon.wall, -0.2);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(o.x + 0.5, o.y + 0.5, o.w - 1, o.h - 1);
+      }
     }
   }
 
