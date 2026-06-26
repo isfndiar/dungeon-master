@@ -1164,9 +1164,10 @@ export class Engine {
           if (!this.inObstacle(e.x + ex, e.y, mr)) e.x += ex;
           if (!this.inObstacle(e.x, e.y + ey, mr)) e.y += ey;
         }
-        // contact damage
+        // contact damage (bosses have extended reach — tentacle/arm swipe)
         e.atkTimer -= dt * enrage;
-        if (d < e.size * 0.4 + 10 && e.atkTimer <= 0 && !locked) {
+        const reach = e.isBoss ? e.size * 0.65 + 15 : e.size * 0.4 + 10;
+        if (d < reach && e.atkTimer <= 0 && !locked) {
           this.damagePlayer(e.dmg);
           e.atkTimer = e.atkCooldown;
           e.atkAnim = 1;
@@ -3076,6 +3077,36 @@ export class Engine {
     ctx.translate(-cx, -cy);
     drawSprite(ctx, e.spriteKey, e.sprite,
       Math.round(cx - size / 2), Math.round(cy - size / 2), size, e.faceLeft);
+    // octopus: draw tentacle swipe arc during basic attack
+    if (kind === "octopus" && e.atkAnim > 0) {
+      const k = e.atkAnim; // 1 → 0 over 0.25s
+      const swing = (1 - k) * Math.PI * 0.6; // arc from 0 to ~108 degrees
+      const dir = e.faceLeft ? -1 : 1;
+      const reach = size * 0.7;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(dir, 1);
+      // tentacle arm (thick curved line)
+      ctx.globalAlpha = 0.6 + 0.4 * k;
+      ctx.strokeStyle = "#6a3a8a";
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      const tipX = Math.cos(swing) * reach;
+      const tipY = Math.sin(swing) * reach - 4;
+      const cpX = Math.cos(swing * 0.5) * reach * 0.6;
+      const cpY = Math.sin(swing * 0.5) * reach * 0.6 - 8;
+      ctx.quadraticCurveTo(cpX, cpY, tipX, tipY);
+      ctx.stroke();
+      // tentacle tip (bright)
+      ctx.globalAlpha = 0.8 * k;
+      ctx.fillStyle = "#8a5aba";
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
     if (e.phaseFlash > 0) {
       // bright flash on break / phase change
       ctx.globalCompositeOperation = "source-atop";
