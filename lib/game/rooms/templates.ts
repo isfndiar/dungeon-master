@@ -31,4 +31,14 @@ export const ROOM_TEMPLATES: RoomTemplate[] = [
       { x: 150, y: 200, w: 56, h: 30 },
     ],
   },
+  {
+    id: "room1",
+    obstacles: [
+      { x: 80, y: 48, w: 96, h: 40 },
+      { x: 320, y: 184, w: 96, h: 40 },
+    ],
+    hazards: [
+      { x: 16, y: 160, w: 200, h: 96 },
+    ],
+  },
 ];
