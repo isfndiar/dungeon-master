@@ -243,6 +243,8 @@ export class Engine {
   private invuln = 0;
   private shield = 0; // tank skill temp shield
   private healOverTime = 0; // priest heal remaining seconds
+  private healOverTimeDps = 0; // heal per second while active
+  private divineHealTime = 0; // divine heal burst visual timer
   private walkBob = 0;
   private animTime = 0;   // drives walk/idle frame index
   private moving = false; // moved this frame
@@ -820,7 +822,7 @@ export class Engine {
     if (this.playerSnare > 0) this.playerSnare -= dt;
     if (this.healOverTime > 0) {
       this.healOverTime -= dt;
-      this.php = Math.min(this.phpMax, this.php + 14 * dt);
+      this.php = Math.min(this.phpMax, this.php + this.healOverTimeDps * dt);
     }
     if (this.healZoneTime > 0) {
       this.healZoneTime -= dt;
@@ -1010,10 +1012,20 @@ export class Engine {
         break;
       }
       case "heal": {
-        this.php = Math.min(this.phpMax, this.php + this.phpMax * 0.3);
-        this.healOverTime = 3;
-        this.float("+" + Math.round(this.phpMax * 0.3), this.px, this.py - 16, "#5fff8f");
-        this.spawnRing(this.px, this.py, "#5fff8f", 30);
+        // divine heal: burst heal + AoE holy light + heal over time
+        const healAmt = Math.round(this.phpMax * 0.4);
+        this.php = Math.min(this.phpMax, this.php + healAmt);
+        this.healOverTime = 4;
+        this.healOverTimeDps = Math.round(this.phpMax * 0.08);
+        this.divineHealTime = 0.8;
+        // AoE holy light burst damages nearby enemies
+        for (const e of this.enemies) {
+          if (dist(e.x, e.y, this.px, this.py) < 80 + e.size * 0.4) {
+            this.damageEnemy(e, dmg * 0.8);
+          }
+        }
+        this.float("+" + healAmt, this.px, this.py - 18, "#5fff8f");
+        this.spawnRing(this.px, this.py, "#ffd24a", 80);
         break;
       }
       case "sanctuary": {
@@ -2585,6 +2597,57 @@ export class Engine {
       ctx.strokeStyle = "#ffd24a";
       ctx.lineWidth = 1;
       ctx.stroke();
+      ctx.restore();
+    }
+
+    // divine heal burst visual: pillar of light descending onto priest
+    if (this.divineHealTime > 0) {
+      this.divineHealTime -= 1 / 60;
+      const k = Math.max(0, this.divineHealTime / 0.8);
+      ctx.save();
+      // pillar of light from top of screen to player
+      const px = Math.round(this.px), py = Math.round(this.py);
+      const pillarW = 18 + (1 - k) * 12;
+      const grad = ctx.createLinearGradient(px, 0, px, py);
+      grad.addColorStop(0, `rgba(255,240,180,${0.3 * k})`);
+      grad.addColorStop(0.6, `rgba(255,210,74,${0.5 * k})`);
+      grad.addColorStop(1, `rgba(122,255,143,${0.7 * k})`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(px - pillarW * 0.4, 0);
+      ctx.lineTo(px + pillarW * 0.4, 0);
+      ctx.lineTo(px + pillarW, py);
+      ctx.lineTo(px - pillarW, py);
+      ctx.closePath();
+      ctx.fill();
+      // expanding golden ring at player position
+      const ringR = 30 + (1 - k) * 60;
+      ctx.globalAlpha = 0.6 * k;
+      ctx.strokeStyle = "#ffd24a";
+      ctx.lineWidth = 2 + k * 2;
+      ctx.beginPath();
+      ctx.arc(px, py, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      // inner glow
+      const glow = ctx.createRadialGradient(px, py, 0, px, py, 40);
+      glow.addColorStop(0, `rgba(255,210,74,${0.5 * k})`);
+      glow.addColorStop(0.5, `rgba(122,255,143,${0.3 * k})`);
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(px, py, 40, 0, Math.PI * 2);
+      ctx.fill();
+      // light particles rising from player
+      if (k > 0.3) {
+        for (let i = 0; i < 3; i++) {
+          this.particles.push({
+            x: px + rand(-20, 20), y: py + rand(-10, 10),
+            vx: rand(-10, 10), vy: rand(-50, -25),
+            life: 0.4, color: i % 2 === 0 ? "#ffd24a" : "#5fff8f",
+          });
+        }
+      }
       ctx.restore();
     }
 
