@@ -9,7 +9,7 @@ import {
   TOWN_W, TOWN_H, WORLD_W, WORLD_H,
 } from "./maps";
 import type {
-  TownMap, NpcDef, Building, TownCallbacks,
+  TownMap, NpcDef, Building, TownCallbacks, TerrainRect,
 } from "./maps";
 
 export type { NpcDef, TownAction } from "./maps";
@@ -58,6 +58,8 @@ export class TownEngine {
   private grassPattern?: CanvasPattern;
   private roadTile?: HTMLImageElement;
   private roadPattern?: CanvasPattern;
+  private waterTile?: HTMLImageElement;
+  private waterPattern?: CanvasPattern;
   private nearby: NpcDef | null = null;
   private prevInteract = false;
   private transitionState: "none" | "fade-out" | "fade-in" = "none";
@@ -189,6 +191,9 @@ export class TownEngine {
     const road = new Image();
     road.src = "/terrain/gray-brick-road-tile.png";
     this.roadTile = road;
+    const water = new Image();
+    water.src = "/terrain/water-tile.png";
+    this.waterTile = water;
   }
 
   // collision: player feet (a small box at the sprite base) vs building bodies
@@ -205,6 +210,21 @@ export class TownEngine {
         fy - r < b.y + b.h
       ) {
         return true;
+      }
+    }
+    // water terrain blocks the player
+    const terrain = this.currentMap.terrainRects;
+    if (terrain) {
+      for (const t of terrain) {
+        if (t.type !== "water") continue;
+        if (
+          fx + r > t.x &&
+          fx - r < t.x + t.w &&
+          fy + r > t.y &&
+          fy - r < t.y + t.h
+        ) {
+          return true;
+        }
       }
     }
     return false;
@@ -387,6 +407,29 @@ export class TownEngine {
       ctx.fillStyle = "#9a8f7a";
       for (const p of this.currentMap.plazas) {
         ctx.fillRect(p.x, p.y, p.w, p.h);
+      }
+    }
+
+    // painted terrain rects (brick roads + water) — drawn over grass/plaza
+    const terrain = this.currentMap.terrainRects;
+    if (terrain && terrain.length) {
+      // brick rects use the road texture (or flat fallback)
+      const brickFill = this.roadPattern ?? "#9a8f7a";
+      for (const t of terrain) {
+        if (t.type !== "brick") continue;
+        ctx.fillStyle = brickFill;
+        ctx.fillRect(t.x, t.y, t.w, t.h);
+      }
+      // water rects use the water texture (or flat blue fallback)
+      const water = this.waterTile;
+      if (water?.complete && water.naturalWidth > 0 && !this.waterPattern) {
+        this.waterPattern = ctx.createPattern(water, "repeat") ?? undefined;
+      }
+      const waterFill = this.waterPattern ?? "#3a6a9a";
+      for (const t of terrain) {
+        if (t.type !== "water") continue;
+        ctx.fillStyle = waterFill;
+        ctx.fillRect(t.x, t.y, t.w, t.h);
       }
     }
 

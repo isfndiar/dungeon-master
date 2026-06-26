@@ -63,6 +63,16 @@ export interface Plaza {
   h: number;
 }
 
+// A painted terrain rectangle (grid-aligned). "brick" overlays a road texture,
+// "water" overlays the water tile and blocks the player (collision).
+export interface TerrainRect {
+  type: "brick" | "water";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface TownMap {
   id: string;
   name: string;
@@ -74,6 +84,7 @@ export interface TownMap {
   spawnY: number;
   exits: { left?: string; right?: string };
   plazas: Plaza[];
+  terrainRects?: TerrainRect[]; // optional painted terrain (brick/water)
 }
 
 export interface TownCallbacks {
