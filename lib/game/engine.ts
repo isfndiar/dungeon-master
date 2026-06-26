@@ -144,6 +144,17 @@ interface Enemy {
 
 interface FloatText { x: number; y: number; text: string; life: number; color: string; }
 interface Particle { x: number; y: number; vx: number; vy: number; life: number; color: string; }
+interface NovaWave {
+  x: number; y: number;
+  radius: number;          // current expanding radius
+  maxRadius: number;       // max reach
+  speed: number;           // expansion px/s
+  dmg: number;
+  frozenDur: number;       // freeze duration applied on hit
+  duration: number;        // total lifetime
+  time: number;            // elapsed
+  hitSet: Set<Enemy>;      // enemies already hit (avoid multi-hit)
+}
 
 export interface RaidResult {
   win: boolean;
@@ -260,6 +271,7 @@ export class Engine {
   private hazards: HazardAoE[] = [];
   private beams: HazardBeam[] = [];
   private pools: HazardPool[] = [];
+  private playerNovaWaves: NovaWave[] = [];   // mage frost nova expanding waves
   private bossSpellTimer = 999;   // boss spell cooldown accumulator
 
   private phase: Phase = "intro";
@@ -604,6 +616,7 @@ export class Engine {
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
     this.updateHazards(dt);
+    this.updateNovaWaves(dt);
     this.updateFx(dt);
 
     // newly cleared this frame?
@@ -939,25 +952,35 @@ export class Engine {
       }
       // ---- Mage ----
       case "frostnova": {
-        for (const e of this.enemies) {
-          if (dist(e.x, e.y, this.px, this.py) < 60 + e.size * 0.4) {
-            this.damageEnemy(e, dmg * 1.2);
-            e.frozen = 2.5;
-          }
-        }
-        this.spawnRing(this.px, this.py, "#7ad7ff", 60);
-        this.float("FROZEN", this.px, this.py - 18, "#7ad7ff");
+        // expanding wave sweeps outward, freezing and damaging enemies as it passes
+        const novaMaxRadius = 80;
+        const novaSpeed = 260;   // px/s expansion speed
+        const novaDuration = novaMaxRadius / novaSpeed;
+        this.playerNovaWaves.push({
+          x: this.px, y: this.py,
+          radius: 0, maxRadius: novaMaxRadius,
+          speed: novaSpeed,
+          dmg: dmg * 1.2,
+          frozenDur: 2.5,
+          duration: novaDuration,
+          time: 0,
+          hitSet: new Set(),
+        });
+        this.float("FROST NOVA", this.px, this.py - 18, "#7ad7ff");
         break;
       }
       case "meteor": {
         const tx = this.input.mouseX, ty = this.input.mouseY;
-        for (const e of this.enemies) {
-          if (dist(e.x, e.y, tx, ty) < 50 + e.size * 0.4) this.damageEnemy(e, dmg * 2.4);
-        }
-        this.spawnRing(tx, ty, "#ff6a1a", 50);
-        for (let i = 0; i < 24; i++) {
-          this.particles.push({ x: tx, y: ty, vx: rand(-60, 60), vy: rand(-60, 60), life: 0.5, color: "#ff6a1a" });
-        }
+        // place a telegraphed falling meteor AoE — big hit + epic visual
+        const novaR = 56;
+        const tele = 0.6;
+        this.hazards.push({
+          x: tx, y: ty, radius: novaR,
+          telegraph: tele, telegraphMax: tele,
+          dmg: Math.round(dmg * 2.4),
+          color: "#ff6a1a",
+          exploded: false, fade: 0, kind: "meteor",
+        });
         break;
       }
       case "blink": {
@@ -1853,6 +1876,25 @@ export class Engine {
     this.pools = this.pools.filter((p) => p.time > 0);
   }
 
+  private updateNovaWaves(dt: number) {
+    for (const w of this.playerNovaWaves) {
+      w.time += dt;
+      w.radius += w.speed * dt;
+      // check enemies in the expanding ring shell (±8px band)
+      const inner = w.radius - 8;
+      for (const e of this.enemies) {
+        if (w.hitSet.has(e)) continue;
+        const d = dist(e.x, e.y, w.x, w.y);
+        if (d >= inner && d <= w.radius + e.size * 0.4) {
+          this.damageEnemy(e, w.dmg);
+          e.frozen = Math.max(e.frozen, w.frozenDur);
+          w.hitSet.add(e);
+        }
+      }
+    }
+    this.playerNovaWaves = this.playerNovaWaves.filter((w) => w.time < w.duration);
+  }
+
   private explodeAoE(h: HazardAoE) {
     this.spawnRing(h.x, h.y, h.color, h.radius);
     for (let i = 0; i < 16; i++) {
@@ -2049,6 +2091,43 @@ export class Engine {
           ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
           ctx.fill();
         }
+      }
+      ctx.restore();
+    }
+  }
+
+  private drawNovaWaves(ctx: CanvasRenderingContext2D) {
+    const now = performance.now();
+    for (const w of this.playerNovaWaves) {
+      const k = 1 - w.time / w.duration;   // 1 → 0 fade
+      const pulse = 0.4 + 0.3 * Math.sin(now / 50);
+      ctx.save();
+      // outer expanding ring (frost blue)
+      ctx.globalAlpha = 0.7 * k * pulse;
+      ctx.strokeStyle = "#7ad7ff";
+      ctx.lineWidth = 2 + 2 * k;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      // inner glow fill
+      const grad = ctx.createRadialGradient(w.x, w.y, w.radius * 0.6, w.x, w.y, w.radius);
+      grad.addColorStop(0, "rgba(122,215,255,0)");
+      grad.addColorStop(0.7, "rgba(122,215,255,0)");
+      grad.addColorStop(1, `rgba(122,215,255,${0.25 * k * pulse})`);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2);
+      ctx.fill();
+      // frost shards along the ring edge
+      ctx.globalAlpha = 0.6 * k;
+      ctx.fillStyle = "#c8f0ff";
+      const n = 8;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + w.time * 2;
+        const sx = w.x + Math.cos(a) * w.radius;
+        const sy = w.y + Math.sin(a) * w.radius;
+        ctx.fillRect(sx - 1, sy - 1, 2, 2);
       }
       ctx.restore();
     }
@@ -2428,6 +2507,7 @@ export class Engine {
 
     // boss spell hazards (telegraphs + explosions)
     this.drawHazards(ctx);
+    this.drawNovaWaves(ctx);
 
     // particles
     for (const pt of this.particles) {
