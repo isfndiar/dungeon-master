@@ -239,6 +239,7 @@ export class Engine {
   private playerSlow = 0;        // seconds remaining of movement slow
   private playerSlowMult = 1;    // multiplier while active (0.5 = half speed)
   private playerSnare = 0;       // seconds remaining of root
+  private hazardTick = 0; // accumulator for static room-hazard damage
   // buffs
   private dmgBuff = 0;      // seconds remaining of damage buff
   private dmgBuffMult = 1;  // multiplier while active
@@ -599,6 +600,7 @@ export class Engine {
 
     this.updateAimFromInput();
     this.updatePlayer(dt);
+    if (!this.isEndless) this.updateRoomHazards(dt);
     this.updateEnemies(dt);
     this.updateProjectiles(dt);
     this.updateHazards(dt);
@@ -666,6 +668,27 @@ export class Engine {
           return;
         }
       }
+    }
+  }
+
+  // Drain HP while the player stands in a static room hazard (every 0.5s).
+  private updateRoomHazards(dt: number) {
+    const hz = this.curRoom.hazards;
+    if (!hz || !hz.length) { this.hazardTick = 0; return; }
+    const pr = 6;
+    let inside = false;
+    for (const h of hz) {
+      if (this.px + pr > h.x && this.px - pr < h.x + h.w && this.py + pr > h.y && this.py - pr < h.y + h.h) {
+        inside = true;
+        break;
+      }
+    }
+    if (!inside) { this.hazardTick = 0; return; }
+    this.hazardTick += dt;
+    if (this.hazardTick >= 0.5) {
+      this.hazardTick = 0;
+      // scales with dungeon difficulty so it stays relevant in higher modes
+      this.damagePlayer(Math.round(10 * this.difficulty));
     }
   }
 
