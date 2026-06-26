@@ -3,7 +3,7 @@ export type MonsterKind =
   | "skeleton" | "ghost" | "imp" | "golem"
   | "mermaid" | "anglerfish";
 
-export type BossKind = "giant_slime" | "spider_queen" | "lich" | "lava_golem";
+export type BossKind = "giant_slime" | "spider_queen" | "lich" | "lava_golem" | "octopus";
 
 export type BossSpellKind =
   // ----- giant slime -----
@@ -21,7 +21,11 @@ export type BossSpellKind =
   // ----- lava golem -----
   | "meteor" | "lavaPool" | "eruption"              // phase 1
   | "fireWall" | "magmaWave" | "emberBurst"         // phase 2
-  | "volcano" | "lavaTsunami" | "infernoNova";      // phase 3
+  | "volcano" | "lavaTsunami" | "infernoNova"        // phase 3
+  // ----- octopus -----
+  | "inkBlast" | "tentacleSlam" | "bubbleRing"        // phase 1
+  | "inkCloud" | "whirlpool" | "tentacleSweep"         // phase 2
+  | "deepCrush" | "krakensGrasp" | "abyssalSurge";     // phase 3
 
 export type SpellTier = 1 | 2 | 3;
 
@@ -136,6 +140,24 @@ export const BOSSES: Record<BossKind, BossDef> = {
       { kind: "volcano",      cooldown: 4,  tier: 3 },
       { kind: "lavaTsunami",  cooldown: 4,  tier: 3 },
       { kind: "infernoNova",  cooldown: 3,  tier: 3 },
+    ],
+  },
+  octopus: {
+    kind: "octopus", name: "Kraken", hp: 750, dmg: 20, speed: 35,
+    ranged: true, projectile: "bolt", attackCooldown: 1.2, gold: 180, xp: 280, size: 56,
+    spells: [
+      // phase 1
+      { kind: "inkBlast",      cooldown: 5,  tier: 1 },
+      { kind: "tentacleSlam",  cooldown: 5,  tier: 1 },
+      { kind: "bubbleRing",    cooldown: 4,  tier: 1 },
+      // phase 2
+      { kind: "inkCloud",      cooldown: 4,  tier: 2 },
+      { kind: "whirlpool",     cooldown: 5,  tier: 2 },
+      { kind: "tentacleSweep", cooldown: 4,  tier: 2 },
+      // phase 3
+      { kind: "deepCrush",     cooldown: 3,  tier: 3 },
+      { kind: "krakensGrasp",  cooldown: 5,  tier: 3 },
+      { kind: "abyssalSurge",  cooldown: 3,  tier: 3 },
     ],
   },
 };

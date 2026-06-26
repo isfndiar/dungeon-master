@@ -110,7 +110,7 @@ interface HazardPool {
   snare: boolean;              // full root
   snareTime: number;           // snare debuff duration
   color: string;
-  kind: "slime" | "lava" | "web";
+  kind: "slime" | "lava" | "web" | "ink";
   tickAcc: number;             // dmg tick accumulator
   spawnTelegraph: number;      // pre-activate warning (0 = active)
 }
@@ -1233,7 +1233,7 @@ export class Engine {
   }
 
   // a persistent ground pool at a position
-  private spawnPoolAt(x: number, y: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web", telegraph: number) {
+  private spawnPoolAt(x: number, y: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web" | "ink", telegraph: number) {
     this.pools.push({
       x: clamp(x, FIELD.x + 16, FIELD.x + FIELD.w - 16),
       y: clamp(y, FIELD.y + 16, FIELD.y + FIELD.h - 16),
@@ -1256,7 +1256,7 @@ export class Engine {
   }
 
   // a line of pools forming a wall, perpendicular to boss→player, offset ahead of player
-  private spawnWall(boss: Enemy, segs: number, gap: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web") {
+  private spawnWall(boss: Enemy, segs: number, gap: number, radius: number, time: number, dmgPerSec: number, slow: number, slowTime: number, snare: boolean, snareTime: number, color: string, kind: "slime" | "lava" | "web" | "ink") {
     const toPlayer = Math.atan2(this.py - boss.y, this.px - boss.x);
     const perp = toPlayer + Math.PI / 2;
     for (let i = 0; i < segs; i++) {
@@ -1757,6 +1757,37 @@ export class Engine {
         this.float("INFERNO NOVA!", boss.x, boss.y - 30, "#ff3a2a");
         break;
       }
+
+      // ----- octopus family (Stage ?) -----
+      case "inkBlast": {
+        // telegraphed AoE explosions near player, ink-colored
+        const count = t === 1 ? 3 : t === 2 ? 5 : 7;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(20, 70);
+          const tx = clamp(this.px + Math.cos(ang) * off, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+          const ty = clamp(this.py + Math.sin(ang) * off, FIELD.y + 20, FIELD.y + FIELD.h - 20);
+          const tele = 0.4 + i * 0.15;
+          this.spawnExplosion(tx, ty, 45, tele, 1.0, "#2a4a6a", boss, 0, true, "#1a2a4a");
+        }
+        this.float("INK BLAST!", boss.x, boss.y - 30, "#2a4a6a");
+        break;
+      }
+      case "tentacleSlam": {
+        // line of ink pools forming a wall perpendicular to boss→player
+        const segs = t === 1 ? 4 : t === 2 ? 6 : 8;
+        this.spawnWall(boss, segs, 24, 22, 4, Math.round(boss.dmg * 0.3), 0.4, 1.5, false, 0, "#2a4a6a", "ink");
+        this.float("TENTACLE SLAM!", boss.x, boss.y - 30, "#6a3a8a");
+        break;
+      }
+      case "bubbleRing": {
+        // ring of bolts around boss, bubble-tinted
+        const count = t === 1 ? 10 : t === 2 ? 14 : 18;
+        const speed = t === 3 ? 180 : 140;
+        this.spawnBoltRing(boss, count, speed, 0.7, "#5ac8ff", 0.15, "bolt");
+        this.float("BUBBLE RING!", boss.x, boss.y - 30, "#5ac8ff");
+        break;
+      }
     }
   }
 
@@ -2036,6 +2067,19 @@ export class Engine {
             ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
             ctx.stroke();
           }
+        }
+        if (p.kind === "ink") {
+          // dark ink blotches
+          ctx.globalAlpha = 0.35;
+          ctx.fillStyle = "#1a2a4a";
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 0.2;
+          ctx.fillStyle = "#2a4a6a";
+          ctx.beginPath();
+          ctx.arc(p.x + 4, p.y - 3, p.radius * 0.4, 0, Math.PI * 2);
+          ctx.fill();
         }
         // lava kind: bright core glow + ember flecks
         if (p.kind === "lava") {
@@ -2831,6 +2875,9 @@ export class Engine {
       } else if (kind === "lava_golem") {
         // grow, glow core
         sx = 1 + 0.12 * k; sy = 1 + 0.12 * k;
+      } else if (kind === "octopus") {
+        // pulse outward
+        sx = 1 + 0.1 * k; sy = 1 + 0.1 * k; oy = -2 * k;
       }
     }
     if (e.atkAnim > 0) {
@@ -2846,6 +2893,9 @@ export class Engine {
         ox += dir * 3 * Math.sin(k * Math.PI);
       } else if (kind === "lava_golem") {
         oy -= 3 * Math.sin(k * Math.PI);
+      } else if (kind === "octopus") {
+        // tentacle recoil
+        sy -= 0.08 * Math.sin(k * Math.PI);
       }
     }
     const broken = e.bossState === "broken";
@@ -3038,6 +3088,16 @@ export class Engine {
           life: 0.4, color: "#ff6a2a",
         });
       }
+    } else if (kind === "octopus") {
+      // pulsing dark aura
+      const pulse = 0.15 + Math.sin(performance.now() / 300) * 0.05;
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = "#2a4a6a";
+      ctx.beginPath();
+      ctx.arc(e.x, e.y, e.size * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
     }
     ctx.restore();
   }
