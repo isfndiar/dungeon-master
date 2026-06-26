@@ -1090,7 +1090,7 @@ export class Engine {
       }
       // ---- Archer ----
       case "multishot": {
-        // arrow rain: 3 waves of arrows over ~2s in a targeted area
+        // arrow rain + snipe combo: 3 waves + piercing shot + AoE burst
         const tx = this.input.mouseX, ty = this.input.mouseY;
         const rainR = 60;
         for (let wave = 0; wave < 3; wave++) {
@@ -1110,7 +1110,16 @@ export class Engine {
             });
           }
         }
-        this.float("ARROW RAIN", tx, ty - 14, "#8abf5a");
+        // snipe burst: piercing shot + AoE explosion at impact
+        this.firePiercing(this.aimX, this.aimY, dmg * 3, "arrow");
+        this.hazards.push({
+          x: tx, y: ty, radius: 50,
+          telegraph: 0.35, telegraphMax: 0.35,
+          dmg: Math.round(dmg * 2),
+          color: "#3f8f5a",
+          exploded: false, fade: 0, kind: "meteor",
+        });
+        this.float("ARROW RAIN + SNIPE", tx, ty - 14, "#3f8f5a");
         break;
       }
       case "rapidfire": {
@@ -1120,17 +1129,8 @@ export class Engine {
         break;
       }
       case "snipe": {
-        // snipe burst: piercing shot + AoE explosion at impact point
-        this.firePiercing(this.aimX, this.aimY, dmg * 3, "arrow");
-        const tx = this.input.mouseX, ty = this.input.mouseY;
-        this.hazards.push({
-          x: tx, y: ty, radius: 50,
-          telegraph: 0.35, telegraphMax: 0.35,
-          dmg: Math.round(dmg * 2),
-          color: "#3f8f5a",
-          exploded: false, fade: 0, kind: "meteor",
-        });
-        this.float("SNIPE", tx, ty - 14, "#3f8f5a");
+        // piercing shot only
+        this.firePiercing(this.aimX, this.aimY, dmg * 4, "arrow");
         break;
       }
     }
