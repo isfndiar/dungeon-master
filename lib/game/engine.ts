@@ -1090,11 +1090,26 @@ export class Engine {
       }
       // ---- Archer ----
       case "multishot": {
-        const base = Math.atan2(this.aimY, this.aimX);
-        for (let i = -2; i <= 2; i++) {
-          const a = base + i * 0.18;
-          this.fireProjectile(Math.cos(a), Math.sin(a), dmg * 0.8, "arrow");
+        // arrow rain: arrows rain down in a targeted area
+        const tx = this.input.mouseX, ty = this.input.mouseY;
+        const rainR = 60;
+        const count = 12;
+        for (let i = 0; i < count; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const off = rand(0, rainR);
+          const ax = tx + Math.cos(ang) * off;
+          const ay = ty + Math.sin(ang) * off;
+          const delay = rand(0, 0.4);
+          // schedule delayed arrows via hazards (reuse meteor telegraph visual)
+          this.hazards.push({
+            x: ax, y: ay, radius: 8,
+            telegraph: 0.3 + delay, telegraphMax: 0.3 + delay,
+            dmg: Math.round(dmg * 0.6),
+            color: "#8abf5a",
+            exploded: false, fade: 0, kind: "meteor",
+          });
         }
+        this.float("ARROW RAIN", tx, ty - 14, "#8abf5a");
         break;
       }
       case "rapidfire": {
@@ -1104,7 +1119,17 @@ export class Engine {
         break;
       }
       case "snipe": {
-        this.firePiercing(this.aimX, this.aimY, dmg * 4, "arrow");
+        // snipe burst: piercing shot + AoE explosion at impact point
+        this.firePiercing(this.aimX, this.aimY, dmg * 3, "arrow");
+        const tx = this.input.mouseX, ty = this.input.mouseY;
+        this.hazards.push({
+          x: tx, y: ty, radius: 50,
+          telegraph: 0.35, telegraphMax: 0.35,
+          dmg: Math.round(dmg * 2),
+          color: "#3f8f5a",
+          exploded: false, fade: 0, kind: "meteor",
+        });
+        this.float("SNIPE", tx, ty - 14, "#3f8f5a");
         break;
       }
     }
