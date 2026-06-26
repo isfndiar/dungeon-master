@@ -104,7 +104,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     skills: [
       { key: "1", name: "Ground Slam", desc: "Knockback shockwave around you.",      cooldown: 6, kind: "groundslam" },
       { key: "2", name: "Bulwark",     desc: "Temp shield + pull aggro.",            cooldown: 6, kind: "taunt" },
-      { key: "3", name: "Berserk",     desc: "Rage: big damage & speed boost.",      cooldown: 12, kind: "berserk" },
+      { key: "3", name: "Berserk",     desc: "Rage: big damage & speed boost.",      cooldown: 7, kind: "berserk" },
     ],
   },
   archer: {
