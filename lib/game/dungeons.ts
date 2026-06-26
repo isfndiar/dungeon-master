@@ -1,6 +1,6 @@
 import { MonsterKind, BossKind } from "./monsters";
 
-export type DungeonId = "forest" | "cave" | "crypt" | "volcano" | "endless" | "ruins";
+export type DungeonId = "forest" | "cave" | "crypt" | "volcano" | "endless" | "ruins" | "atlantis";
 
 export interface DungeonDef {
   id: DungeonId;
@@ -115,9 +115,25 @@ export const DUNGEONS: Record<DungeonId, DungeonDef> = {
     order: 6,
     useTemplates: true,
   },
+  atlantis: {
+    id: "atlantis",
+    name: "Sunken Atlantis",
+    desc: "Ancient halls drowned in the deep. Merrows and anglerfish lurk in the dark.",
+    monsters: ["skeleton", "ghost"], // merrow (melee) + anglerfish (ranged)
+    boss: "lich", // kraken — reuses lich behavior
+    rooms: 8,
+    baseSpawns: 6,
+    spawnGrowth: 3,
+    difficulty: 2.0,
+    floor: "#0a2a3a",
+    wall: "#061e2e",
+    accent: "#2ad4d4",
+    order: 7,
+    useTemplates: true,
+  },
 };
 
-export const DUNGEON_IDS: DungeonId[] = ["forest", "cave", "crypt", "volcano", "endless", "ruins"];
+export const DUNGEON_IDS: DungeonId[] = ["forest", "cave", "crypt", "volcano", "endless", "ruins", "atlantis"];
 
 // ---------- difficulty modes ----------
 export type GameMode = "default" | "normal" | "hard" | "extreme" | "hell";
