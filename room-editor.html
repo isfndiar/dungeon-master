@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Dungeon Room Editor</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #15161a; color: #ddd; font-family: ui-monospace, monospace; padding: 16px; }
+  h1 { font-size: 15px; margin: 0 0 12px; }
+  .wrap { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+  canvas { background: #000; image-rendering: pixelated; border: 1px solid #444; cursor: crosshair; }
+  .side { width: 340px; font-size: 12px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  button { background: #2a2c33; color: #ddd; border: 1px solid #444; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  button:hover { background: #34373f; }
+  button.active { background: #3a5a8a; border-color: #5a8aca; }
+  button.danger:hover { background: #6a2a2a; }
+  label.chk { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .sel { background: #1c1d22; border: 1px solid #383a42; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+  .sel h3 { margin: 0 0 8px; font-size: 12px; color: #9cf; }
+  .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 5px 8px; align-items: center; }
+  .grid2 input { width: 100%; background: #0e0f12; color: #ddd; border: 1px solid #383a42; padding: 3px 5px; border-radius: 4px; font-family: inherit; }
+  textarea { width: 100%; height: 200px; background: #0e0f12; color: #8fd; border: 1px solid #383a42; border-radius: 6px; padding: 8px; font-family: inherit; font-size: 11px; resize: vertical; }
+  .hint { color: #888; font-size: 11px; line-height: 1.5; margin: 6px 0; }
+  .swatch { display: inline-block; width: 11px; height: 11px; vertical-align: middle; margin-right: 5px; border: 1px solid #555; }
+  .warn { color: #ff7a7a; font-size: 11px; min-height: 16px; margin: 4px 0; }
+  .doors { display: flex; gap: 10px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<h1>Dungeon Room Editor — field 480x270, snap 8px, scale 2x</h1>
+<div class="wrap">
+  <div>
+    <canvas id="c" width="960" height="540"></canvas>
+    <div class="hint">Click to select - drag to move - drag corner to resize. <label class="chk"><input type="checkbox" id="snap" checked> Snap 8px</label></div>
+    <div class="doors">
+      <span>Doors:</span>
+      <label class="chk"><input type="checkbox" class="door" data-d="n" checked> N</label>
+      <label class="chk"><input type="checkbox" class="door" data-d="e" checked> E</label>
+      <label class="chk"><input type="checkbox" class="door" data-d="s" checked> S</label>
+      <label class="chk"><input type="checkbox" class="door" data-d="w" checked> W</label>
+    </div>
+    <div class="bar">
+      <button id="addObs">+ Obstacle</button>
+      <button id="addHaz">+ Hazard</button>
+      <button id="dup">Duplicate</button>
+      <button id="del" class="danger">Delete</button>
+      <button id="reset" class="danger">Reset</button>
+    </div>
+    <div class="warn" id="warn"></div>
+  </div>
+  <div class="side">
+    <div class="sel" id="selPanel"><h3>No selection</h3><div class="hint">Select a rect to edit.</div></div>
+    <div class="bar">
+      <label class="chk">id <input id="tplId" type="text" value="room1" style="background:#0e0f12;color:#ddd;border:1px solid #383a42;border-radius:4px;padding:3px 6px;font-family:inherit;width:120px"></label>
+      <button id="exportBtn" class="active">Export template</button>
+      <button id="copyBtn">Copy</button>
+      <button id="dlBtn">Download JSON</button>
+    </div>
+    <textarea id="out" readonly></textarea>
+    <div class="hint">
+      <span class="swatch" style="background:#3a4250"></span>obstacle (solid)
+      <span class="swatch" style="background:#ff3a3a"></span>hazard (damage)
+    </div>
+  </div>
+</div>
+<script>
+const SCALE = 2, GRID = 8, VIEW_W = 480, VIEW_H = 270, WALL = 16;
+const FIELD = { x: WALL, y: WALL, w: VIEW_W - WALL*2, h: VIEW_H - WALL*2 };
+const CX = VIEW_W/2, CY = VIEW_H/2, DOOR_HALF = 22, CORRIDOR_HALF = 24;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const snapEl = document.getElementById('snap');
+
+function defaultModel(){ return { obstacles: [], hazards: [] }; }
+let model = load() || defaultModel();
+let doors = { n:true, e:true, s:true, w:true };
+let sel = null, drag = null;
+
+function snap(v){ return snapEl.checked ? Math.round(v/GRID)*GRID : Math.round(v); }
+function all(){ return [...model.obstacles, ...model.hazards]; }
+function kindOf(o){ return model.obstacles.includes(o) ? 'obstacle' : 'hazard'; }
+
+function toWorld(e){ const r = cv.getBoundingClientRect(); return { x:(e.clientX-r.left)/SCALE, y:(e.clientY-r.top)/SCALE }; }
+function hit(mx,my){ const a = all(); for(let i=a.length-1;i>=0;i--){ const o=a[i]; if(mx>=o.x&&mx<=o.x+o.w&&my>=o.y&&my<=o.y+o.h) return o; } return null; }
+function handle(o,mx,my){ return Math.hypot((o.x+o.w)-mx,(o.y+o.h)-my) < 12; }
+
+cv.addEventListener('mousedown', e=>{
+  const {x,y}=toWorld(e);
+  if(sel && handle(sel,x,y)){ drag={obj:sel,mode:'resize'}; return; }
+  const o=hit(x,y); sel=o;
+  if(o) drag={obj:o,mode:'move',dx:x-o.x,dy:y-o.y};
+  panel(); draw();
+});
+window.addEventListener('mousemove', e=>{
+  if(!drag) return;
+  const {x,y}=toWorld(e); const o=drag.obj;
+  if(drag.mode==='move'){
+    o.x=snap(x-drag.dx); o.y=snap(y-drag.dy);
+    o.x=Math.max(FIELD.x,Math.min(FIELD.x+FIELD.w-o.w,o.x));
+    o.y=Math.max(FIELD.y,Math.min(FIELD.y+FIELD.h-o.h,o.y));
+  } else {
+    o.w=Math.max(GRID,snap(x-o.x)); o.h=Math.max(GRID,snap(y-o.y));
+  }
+  panel(); draw(); save();
+});
+window.addEventListener('mouseup', ()=>{ if(drag){ save(); exportTpl(); } drag=null; });
+
+document.getElementById('addObs').onclick=()=>{ const o={x:120,y:110,w:40,h:40}; model.obstacles.push(o); sel=o; sync(); };
+document.getElementById('addHaz').onclick=()=>{ const o={x:200,y:120,w:48,h:32}; model.hazards.push(o); sel=o; sync(); };
+document.getElementById('dup').onclick=()=>{ if(!sel)return; const k=kindOf(sel); const c={...sel,x:sel.x+GRID,y:sel.y+GRID}; (k==='obstacle'?model.obstacles:model.hazards).push(c); sel=c; sync(); };
+document.getElementById('del').onclick=()=>{ if(!sel)return; model.obstacles=model.obstacles.filter(o=>o!==sel); model.hazards=model.hazards.filter(o=>o!==sel); sel=null; sync(); };
+document.getElementById('reset').onclick=()=>{ if(confirm('Reset room?')){ model=defaultModel(); sel=null; sync(); } };
+document.getElementById('exportBtn').onclick=exportTpl;
+document.getElementById('copyBtn').onclick=()=>{ out.select(); document.execCommand('copy'); };
+document.getElementById('dlBtn').onclick=()=>{
+  const blob=new Blob([out.value],{type:'text/plain'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='room_'+document.getElementById('tplId').value+'.txt'; a.click(); URL.revokeObjectURL(a.href);
+};
+document.querySelectorAll('.door').forEach(d=>{ d.onchange=()=>{ doors[d.dataset.d]=d.checked; draw(); exportTpl(); }; });
+
+function sync(){ panel(); draw(); save(); exportTpl(); }
+
+const selPanel=document.getElementById('selPanel');
+function panel(){
+  if(!sel){ selPanel.innerHTML='<h3>No selection</h3><div class="hint">Select a rect to edit.</div>'; return; }
+  const o=sel, k=kindOf(sel);
+  selPanel.innerHTML='<h3>'+k.toUpperCase()+'</h3><div class="grid2">'+
+    ['x','y','w','h'].map(f=>'<label>'+f+'</label><input id="f_'+f+'" type="number" value="'+o[f]+'">').join('')+'</div>';
+  for(const f of ['x','y','w','h']){ const i=document.getElementById('f_'+f); i.onchange=()=>{ o[f]=Number(i.value); draw(); save(); exportTpl(); }; }
+}
+
+function corridor(dir){
+  switch(dir){
+    case 'n': return {x:CX-CORRIDOR_HALF,y:WALL,w:CORRIDOR_HALF*2,h:CY-WALL};
+    case 's': return {x:CX-CORRIDOR_HALF,y:CY,w:CORRIDOR_HALF*2,h:VIEW_H-WALL-CY};
+    case 'w': return {x:WALL,y:CY-CORRIDOR_HALF,w:CX-WALL,h:CORRIDOR_HALF*2};
+    case 'e': return {x:CX,y:CY-CORRIDOR_HALF,w:VIEW_W-WALL-CX,h:CORRIDOR_HALF*2};
+  }
+}
+function overlap(a,b){ return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y; }
+function blockedDoors(){
+  const bad=[];
+  for(const d of ['n','e','s','w']){ if(!doors[d])continue; const c=corridor(d); if(model.obstacles.some(o=>overlap(o,c))) bad.push(d); }
+  return bad;
+}
+
+function R(x,y,w,h){ ctx.fillRect(x*SCALE,y*SCALE,w*SCALE,h*SCALE); }
+function SR(x,y,w,h){ ctx.strokeRect(x*SCALE+0.5,y*SCALE+0.5,w*SCALE-1,h*SCALE-1); }
+function draw(){
+  ctx.fillStyle='#2a3340'; ctx.fillRect(0,0,VIEW_W*SCALE,VIEW_H*SCALE);
+  // floor tiles
+  ctx.fillStyle='#26303c';
+  for(let y=FIELD.y;y<FIELD.y+FIELD.h;y+=24) for(let x=FIELD.x;x<FIELD.x+FIELD.w;x+=24) if(((x+y)/24)%2<1) R(x,y,24,24);
+  // walls
+  ctx.fillStyle='#1a2230';
+  R(0,0,VIEW_W,WALL); R(0,VIEW_H-WALL,VIEW_W,WALL); R(0,0,WALL,VIEW_H); R(VIEW_W-WALL,0,WALL,VIEW_H);
+  // doors (gaps)
+  ctx.fillStyle='#3a4250';
+  if(doors.n) R(CX-DOOR_HALF,0,DOOR_HALF*2,WALL);
+  if(doors.s) R(CX-DOOR_HALF,VIEW_H-WALL,DOOR_HALF*2,WALL);
+  if(doors.w) R(0,CY-DOOR_HALF,WALL,DOOR_HALF*2);
+  if(doors.e) R(VIEW_W-WALL,CY-DOOR_HALF,WALL,DOOR_HALF*2);
+  // corridors (faint)
+  ctx.globalAlpha=0.08; ctx.fillStyle='#5af';
+  for(const d of ['n','e','s','w']) if(doors[d]){ const c=corridor(d); R(c.x,c.y,c.w,c.h); }
+  ctx.globalAlpha=1;
+  // hazards
+  for(const h of model.hazards){ ctx.globalAlpha=0.4; ctx.fillStyle='#ff3a3a'; R(h.x,h.y,h.w,h.h); ctx.globalAlpha=1; ctx.strokeStyle='#ff6a6a'; ctx.lineWidth=1; SR(h.x,h.y,h.w,h.h); }
+  // obstacles
+  for(const o of model.obstacles){ ctx.fillStyle='#3a4250'; R(o.x,o.y,o.w,o.h); ctx.fillStyle='#4e596a'; R(o.x,o.y,o.w,4); ctx.strokeStyle='#222'; ctx.lineWidth=1; SR(o.x,o.y,o.w,o.h); }
+  // selection
+  if(sel){ ctx.strokeStyle='#5cf'; ctx.lineWidth=2; ctx.strokeRect(sel.x*SCALE,sel.y*SCALE,sel.w*SCALE,sel.h*SCALE); ctx.fillStyle='#5cf'; ctx.fillRect((sel.x+sel.w)*SCALE-4,(sel.y+sel.h)*SCALE-4,8,8); }
+  // warn
+  const bad=blockedDoors();
+  document.getElementById('warn').textContent = bad.length ? ('Warning: obstacle blocks door(s): '+bad.join(', ').toUpperCase()) : '';
+}
+
+const out=document.getElementById('out');
+function exportTpl(){
+  const id=document.getElementById('tplId').value||'room';
+  const need=['n','e','s','w'].filter(d=>doors[d]);
+  const fmt=r=>'{ x: '+r.x+', y: '+r.y+', w: '+r.w+', h: '+r.h+' }';
+  let s='{\n  id: "'+id+'",\n  obstacles: [';
+  s+= model.obstacles.length ? '\n'+model.obstacles.map(o=>'    '+fmt(o)+',').join('\n')+'\n  ' : '';
+  s+='],\n  hazards: [';
+  s+= model.hazards.length ? '\n'+model.hazards.map(o=>'    '+fmt(o)+',').join('\n')+'\n  ' : '';
+  s+='],\n  needDoors: ['+need.map(d=>'"'+d+'"').join(', ')+'],\n},';
+  out.value=s;
+}
+
+function save(){ localStorage.setItem('room_editor', JSON.stringify(model)); }
+function load(){ try{ const s=localStorage.getItem('room_editor'); return s?JSON.parse(s):null; }catch{ return null; } }
+
+snapEl.onchange=draw;
+document.getElementById('tplId').oninput=exportTpl;
+sync();
+</script>
+</body>
+</html>
