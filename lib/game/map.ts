@@ -1,3 +1,5 @@
+import type { RoomRect } from "./rooms/types";
+
 // Random grid-based dungeon map generator.
 // Rooms live on a grid; connected rooms share a door (N/E/S/W).
 // Start room = entry, boss room = the cell farthest from start.
@@ -23,6 +25,8 @@ export interface RoomNode {
   isBoss: boolean;
   cleared: boolean;                // monsters defeated here
   visited: boolean;                // player has entered
+  obstacles?: RoomRect[];          // solid interior blocks (template dungeons)
+  hazards?: RoomRect[];            // static damage zones (template dungeons)
 }
 
 export interface DungeonMap {

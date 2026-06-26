@@ -1,6 +1,6 @@
 import { MonsterKind, BossKind } from "./monsters";
 
-export type DungeonId = "forest" | "cave" | "crypt" | "volcano" | "endless";
+export type DungeonId = "forest" | "cave" | "crypt" | "volcano" | "endless" | "ruins";
 
 export interface DungeonDef {
   id: DungeonId;
@@ -18,6 +18,7 @@ export interface DungeonDef {
   wall: string; // wall color
   accent: string; // theme accent
   order: number;
+  useTemplates?: boolean; // rooms pull hand-designed obstacle/hazard templates
 }
 
 export const DUNGEONS: Record<DungeonId, DungeonDef> = {
@@ -98,9 +99,25 @@ export const DUNGEONS: Record<DungeonId, DungeonDef> = {
     accent: "#c0c8d8",
     order: 5,
   },
+  ruins: {
+    id: "ruins",
+    name: "Sunken Ruins",
+    desc: "Crumbling halls strewn with rubble and rot.",
+    monsters: ["skeleton", "ghost"],
+    boss: "lich",
+    rooms: 6,
+    baseSpawns: 5,
+    spawnGrowth: 2,
+    difficulty: 1.4,
+    floor: "#2a3340",
+    wall: "#1a2230",
+    accent: "#5ad7d7",
+    order: 6,
+    useTemplates: true,
+  },
 };
 
-export const DUNGEON_IDS: DungeonId[] = ["forest", "cave", "crypt", "volcano", "endless"];
+export const DUNGEON_IDS: DungeonId[] = ["forest", "cave", "crypt", "volcano", "endless", "ruins"];
 
 // ---------- difficulty modes ----------
 export type GameMode = "default" | "normal" | "hard" | "extreme" | "hell";
