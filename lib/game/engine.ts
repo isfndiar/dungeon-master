@@ -389,8 +389,8 @@ export class Engine {
     ) {
       const openDoors = DIRS.filter((d) => room.doors[d]);
       const tpl = pickTemplate(Math.random, openDoors);
-      room.obstacles = tpl ? tpl.obstacles : [];
-      room.hazards = tpl ? tpl.hazards : [];
+      room.obstacles = tpl ? tpl.obstacles.map((r) => ({ ...r })) : [];
+      room.hazards = tpl ? tpl.hazards.map((r) => ({ ...r })) : [];
     }
     this.enemies = [];
     this.projectiles = [];
@@ -2404,6 +2404,8 @@ export class Engine {
 
   private drawRoomTerrain() {
     const ctx = this.ctx;
+    // NOTE: curRoom.obstacles/hazards are static template rects, distinct from
+    // this.hazards (dynamic boss AoE) elsewhere in the engine.
     const obstacles = this.curRoom.obstacles;
     const hazards = this.curRoom.hazards;
     // hazards first (under obstacles), pulsing translucent danger zones
