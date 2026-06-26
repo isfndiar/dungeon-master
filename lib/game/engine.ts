@@ -1090,10 +1090,13 @@ export class Engine {
       }
       // ---- Archer ----
       case "multishot": {
-        const base = Math.atan2(this.aimY, this.aimX);
-        for (let i = -2; i <= 2; i++) {
-          const a = base + i * 0.18;
-          this.fireProjectile(Math.cos(a), Math.sin(a), dmg * 0.8, "arrow");
+        // double volley: fires 2 waves of 5 arrows each, increased damage
+        for (let v = 0; v < 2; v++) {
+          const base = Math.atan2(this.aimY, this.aimX);
+          for (let i = -2; i <= 2; i++) {
+            const a = base + i * 0.18;
+            this.fireProjectile(Math.cos(a), Math.sin(a), dmg * 1.2, "arrow");
+          }
         }
         break;
       }
