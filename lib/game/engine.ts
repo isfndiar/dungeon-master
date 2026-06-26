@@ -233,6 +233,7 @@ export class Engine {
   private pdmg: number;
   private atkTimer = 0;
   private skillTimers = [0, 0, 0]; // Q, E, R cooldown remaining
+  private smiteMark: Enemy | null = null; // priest smite: enemy hit, enables re-cast blink
   private faceLeft = false;
   private facing: Facing = "down";
   private aimX = 1; private aimY = 0;
@@ -1007,8 +1008,24 @@ export class Engine {
       }
       // ---- Priest ----
       case "smite": {
-        // piercing holy bolt
-        this.firePiercing(this.aimX, this.aimY, dmg * 1.8, "bolt");
+        if (this.smiteMark && this.enemies.includes(this.smiteMark)) {
+          // re-cast: blink behind the marked enemy + strike
+          const e = this.smiteMark;
+          const behind = e.faceLeft ? 1 : -1;
+          const bx = clamp(e.x + behind * 28, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+          const by = clamp(e.y + 8, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+          this.spawnRing(this.px, this.py, "#ffd24a", 18);
+          this.px = bx; this.py = by;
+          this.spawnRing(this.px, this.py, "#ffd24a", 18);
+          this.damageEnemy(e, dmg * 2.2);
+          this.invuln = Math.max(this.invuln, 0.15);
+          this.smiteMark = null;
+          this.float("SMITE!", this.px, this.py - 18, "#ffd24a");
+        } else {
+          // first cast: piercing holy bolt — marks first enemy hit
+          this.firePiercing(this.aimX, this.aimY, dmg * 1.8, "bolt");
+          this.smiteMark = null; // will be set on hit
+        }
         break;
       }
       case "heal": {
@@ -2322,6 +2339,11 @@ export class Engine {
               p.hitSet!.add(e);
               this.damageEnemy(e, p.dmg);
               this.spawnHit(p.x, p.y, "#ffd24a");
+              // priest smite: mark first enemy hit + reset cooldown for re-cast
+              if (this.heroId === "priest" && p.kind === "bolt" && !this.smiteMark) {
+                this.smiteMark = e;
+                this.skillTimers[0] = 0;
+              }
               // pierce: keep going
             } else {
               this.damageEnemy(e, p.dmg);
@@ -2426,6 +2448,7 @@ export class Engine {
   }
 
   private killEnemy(e: Enemy) {
+    if (this.smiteMark === e) this.smiteMark = null;
     this.monstersKilled++;
     this.goldGained += e.gold;
     this.xpGained += e.xp;
@@ -3068,6 +3091,18 @@ export class Engine {
     } else {
       drawSprite(ctx, e.spriteKey, e.sprite,
         Math.round(e.x - e.size / 2), Math.round(e.y - e.size / 2 + bob), e.size, e.faceLeft);
+    }
+    // smite mark indicator: golden diamond pulsing above enemy
+    if (this.smiteMark === e) {
+      ctx.save();
+      const mx = Math.round(e.x), my = Math.round(e.y - e.size / 2 - 10);
+      const pulse = 0.6 + 0.3 * Math.sin(performance.now() / 120);
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = "#ffd24a";
+      ctx.translate(mx, my);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-4, -4, 8, 8);
+      ctx.restore();
     }
     // hp bar for non-boss
     if (!e.isBoss && e.hp < e.maxHp) {
