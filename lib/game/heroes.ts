@@ -64,7 +64,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     baseHp: 70,
     baseDmg: 26,
     speed: 85,
-    attackCooldown: 0.6,
+    attackCooldown: 0.45,
     attackRange: 14,
     color: "#3a4fb0",
     skills: [
