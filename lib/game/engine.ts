@@ -1090,24 +1090,25 @@ export class Engine {
       }
       // ---- Archer ----
       case "multishot": {
-        // arrow rain: arrows rain down in a targeted area
+        // arrow rain: 3 waves of arrows over ~2s in a targeted area
         const tx = this.input.mouseX, ty = this.input.mouseY;
         const rainR = 60;
-        const count = 12;
-        for (let i = 0; i < count; i++) {
-          const ang = rand(0, Math.PI * 2);
-          const off = rand(0, rainR);
-          const ax = tx + Math.cos(ang) * off;
-          const ay = ty + Math.sin(ang) * off;
-          const delay = rand(0, 0.4);
-          // schedule delayed arrows via hazards (reuse meteor telegraph visual)
-          this.hazards.push({
-            x: ax, y: ay, radius: 8,
-            telegraph: 0.3 + delay, telegraphMax: 0.3 + delay,
-            dmg: Math.round(dmg * 0.6),
-            color: "#8abf5a",
-            exploded: false, fade: 0, kind: "meteor",
-          });
+        for (let wave = 0; wave < 3; wave++) {
+          const baseDelay = wave * 0.6;
+          for (let i = 0; i < 8; i++) {
+            const ang = rand(0, Math.PI * 2);
+            const off = rand(0, rainR);
+            const ax = tx + Math.cos(ang) * off;
+            const ay = ty + Math.sin(ang) * off;
+            this.hazards.push({
+              x: ax, y: ay, radius: 8,
+              telegraph: 0.3 + baseDelay + rand(0, 0.3),
+              telegraphMax: 0.3 + baseDelay + rand(0, 0.3),
+              dmg: Math.round(dmg * 0.5),
+              color: "#8abf5a",
+              exploded: false, fade: 0, kind: "meteor",
+            });
+          }
         }
         this.float("ARROW RAIN", tx, ty - 14, "#8abf5a");
         break;
