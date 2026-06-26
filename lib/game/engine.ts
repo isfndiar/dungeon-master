@@ -681,6 +681,18 @@ export class Engine {
     return false;
   }
 
+  // Pull a desired position out of an obstacle by trying the original, then
+  // axis-only fallbacks, then the current point. Used by teleports/knockback
+  // so the player/enemy never lands embedded inside a solid block.
+  private avoidObstacle(nx: number, ny: number, fromX: number, fromY: number, r: number): { x: number; y: number } {
+    if (!this.inObstacle(nx, ny, r)) return { x: nx, y: ny };
+    // try keeping each axis independently (slide-in)
+    if (!this.inObstacle(nx, fromY, r)) return { x: nx, y: fromY };
+    if (!this.inObstacle(fromX, ny, r)) return { x: fromX, y: ny };
+    // give up: stay at origin
+    return { x: fromX, y: fromY };
+  }
+
   // Keep player inside the room. When the room is cleared, the player may
   // step slightly into an open doorway (which triggers the transition).
   private clampToRoom() {
@@ -851,7 +863,11 @@ export class Engine {
           }
         }
         this.trail(this.px, this.py, tx, ty, "#c0c8d8");
-        this.px = tx; this.py = ty;
+        {
+          const resolved = this.avoidObstacle(tx, ty, this.px, this.py, 7);
+          this.px = resolved.x;
+          this.py = resolved.y;
+        }
         this.invuln = Math.max(this.invuln, 0.25);
         break;
       }
@@ -925,7 +941,11 @@ export class Engine {
         const tx = clamp(this.input.mouseX, FIELD.x + 8, FIELD.x + FIELD.w - 8);
         const ty = clamp(this.input.mouseY, FIELD.y + 8, FIELD.y + FIELD.h - 8);
         this.spawnRing(this.px, this.py, "#b388ff", 18);
-        this.px = tx; this.py = ty;
+        {
+          const resolved = this.avoidObstacle(tx, ty, this.px, this.py, 7);
+          this.px = resolved.x;
+          this.py = resolved.y;
+        }
         this.spawnRing(this.px, this.py, "#b388ff", 18);
         this.invuln = Math.max(this.invuln, 0.2);
         break;
@@ -1115,8 +1135,11 @@ export class Engine {
         const min = (a.size + b.size) * 0.3;
         if (d > 0 && d < min) {
           const push = (min - d) / 2;
-          a.x -= (dx / d) * push; a.y -= (dy / d) * push;
-          b.x += (dx / d) * push; b.y += (dy / d) * push;
+          const ar = a.size * 0.3, br = b.size * 0.3;
+          const ax = a.x - (dx / d) * push, ay = a.y - (dy / d) * push;
+          const bx = b.x + (dx / d) * push, by = b.y + (dy / d) * push;
+          if (!this.inObstacle(ax, ay, ar)) { a.x = ax; a.y = ay; }
+          if (!this.inObstacle(bx, by, br)) { b.x = bx; b.y = by; }
         }
       }
     }
@@ -1822,8 +1845,13 @@ export class Engine {
       if (h.knockback && h.knockback > 0) {
         const dx = this.px - h.x, dy = this.py - h.y;
         const d = Math.hypot(dx, dy) || 1;
-        this.px = clamp(this.px + (dx / d) * h.knockback, FIELD.x + 8, FIELD.x + FIELD.w - 8);
-        this.py = clamp(this.py + (dy / d) * h.knockback, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        {
+          const kx = clamp(this.px + (dx / d) * h.knockback, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+          const ky = clamp(this.py + (dy / d) * h.knockback, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+          const resolved = this.avoidObstacle(kx, ky, this.px, this.py, 7);
+          this.px = resolved.x;
+          this.py = resolved.y;
+        }
       }
     }
     // eruption tier 3 leaves a lava pool at center
