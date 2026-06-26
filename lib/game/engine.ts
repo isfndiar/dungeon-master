@@ -436,7 +436,7 @@ export class Engine {
       else if (side === 1) { x = FIELD.x + FIELD.w - 8; y = rand(FIELD.y, FIELD.y + FIELD.h); }
       else if (side === 2) { x = rand(FIELD.x, FIELD.x + FIELD.w); y = FIELD.y + 8; }
       else { x = rand(FIELD.x, FIELD.x + FIELD.w); y = FIELD.y + FIELD.h - 8; }
-      if (dist(x, y, this.px, this.py) > 90) break;
+      if (dist(x, y, this.px, this.py) > 90 && !this.inObstacle(x, y, 10)) break;
     }
     return { x, y };
   }
@@ -669,6 +669,18 @@ export class Engine {
     }
   }
 
+  // True if a point (with half-extent r) overlaps any obstacle in the room.
+  private inObstacle(x: number, y: number, r: number): boolean {
+    const obs = this.curRoom.obstacles;
+    if (!obs || !obs.length) return false;
+    for (const o of obs) {
+      if (x + r > o.x && x - r < o.x + o.w && y + r > o.y && y - r < o.y + o.h) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Keep player inside the room. When the room is cleared, the player may
   // step slightly into an open doorway (which triggers the transition).
   private clampToRoom() {
@@ -733,8 +745,11 @@ export class Engine {
     this.animTime += dt;
     if (len > 0 && debuffMult > 0) {
       mx /= len; my /= len;
-      this.px += mx * moveSpeed * dt;
-      this.py += my * moveSpeed * dt;
+      const pr = 7;
+      const nx = this.px + mx * moveSpeed * dt;
+      if (!this.inObstacle(nx, this.py, pr)) this.px = nx;
+      const ny = this.py + my * moveSpeed * dt;
+      if (!this.inObstacle(this.px, ny, pr)) this.py = ny;
       this.walkBob += dt * 10;
       if (mx !== 0 && this.input.mouseX === 0 && this.input.mouseY === 0) {
         this.faceLeft = mx < 0;
@@ -1054,13 +1069,12 @@ export class Engine {
       if (e.ranged) {
         // keep distance
         if (!locked) {
-          if (d < desired - 10) {
-            e.x -= (dx / d) * e.speed * slow * dt;
-            e.y -= (dy / d) * e.speed * slow * dt;
-          } else if (d > desired + 10) {
-            e.x += (dx / d) * e.speed * slow * dt;
-            e.y += (dy / d) * e.speed * slow * dt;
-          }
+          let ex = 0, ey = 0;
+          if (d < desired - 10) { ex = -(dx / d) * e.speed * slow * dt; ey = -(dy / d) * e.speed * slow * dt; }
+          else if (d > desired + 10) { ex = (dx / d) * e.speed * slow * dt; ey = (dy / d) * e.speed * slow * dt; }
+          const mr = e.size * 0.3;
+          if (!this.inObstacle(e.x + ex, e.y, mr)) e.x += ex;
+          if (!this.inObstacle(e.x, e.y + ey, mr)) e.y += ey;
         }
         e.atkTimer -= dt * enrage;
         if (e.atkTimer <= 0 && d < 220 && e.frozen <= 0 && !locked) {
@@ -1071,8 +1085,11 @@ export class Engine {
       } else {
         // chase
         if (!locked) {
-          e.x += (dx / d) * e.speed * slow * dt;
-          e.y += (dy / d) * e.speed * slow * dt;
+          const ex = (dx / d) * e.speed * slow * dt;
+          const ey = (dy / d) * e.speed * slow * dt;
+          const mr = e.size * 0.3;
+          if (!this.inObstacle(e.x + ex, e.y, mr)) e.x += ex;
+          if (!this.inObstacle(e.x, e.y + ey, mr)) e.y += ey;
         }
         // contact damage
         e.atkTimer -= dt * enrage;
@@ -2048,8 +2065,10 @@ export class Engine {
           this.spawnHit(p.x, p.y, "#ff5a5a");
         }
       }
-      // walls
+      // walls + obstacles
       if (p.x < FIELD.x || p.x > FIELD.x + FIELD.w || p.y < FIELD.y || p.y > FIELD.y + FIELD.h) {
+        p.life = 0;
+      } else if (this.inObstacle(p.x, p.y, p.radius)) {
         p.life = 0;
       }
     }
