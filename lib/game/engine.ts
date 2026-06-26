@@ -2474,6 +2474,12 @@ export class Engine {
         this.float("+" + heal, this.px, this.py - 16, "#5fff8f");
       }
     }
+    // tank berserk lifesteal: heal 12% max HP on kill while berserk is active
+    if (this.heroId === "tank" && this.dmgBuff > 0 && this.dmgBuffMult >= 2) {
+      const heal = Math.round(this.phpMax * 0.12);
+      this.php = Math.min(this.phpMax, this.php + heal);
+      this.float("+" + heal, this.px, this.py - 16, "#5fff8f");
+    }
     this.maybeDropLoot(e);
     this.enemies = this.enemies.filter((x) => x !== e);
   }
