@@ -56,7 +56,7 @@ interface Projectile {
   vx: number; vy: number;
   dmg: number;
   from: "player" | "enemy";
-  kind: "fireball" | "arrow" | "bolt" | "sword";
+  kind: "fireball" | "arrow" | "bolt" | "sword" | "tentacle";
   life: number;
   radius: number;
   pierce?: boolean;
@@ -119,7 +119,7 @@ interface Enemy {
   x: number; y: number;
   hp: number; maxHp: number;
   dmg: number; speed: number;
-  ranged: boolean; projectile?: "bolt" | "fireball";
+  ranged: boolean; projectile?: "bolt" | "fireball" | "tentacle";
   atkTimer: number; atkCooldown: number;
   size: number;
   sprite: SpriteDef; spriteKey: string;

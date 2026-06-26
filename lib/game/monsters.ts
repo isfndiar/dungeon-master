@@ -42,7 +42,7 @@ export interface MonsterDef {
   dmg: number;
   speed: number;
   ranged: boolean;
-  projectile?: "bolt" | "fireball";
+  projectile?: "bolt" | "fireball" | "tentacle";
   attackCooldown: number;
   gold: number;
   xp: number;
@@ -56,7 +56,7 @@ export interface BossDef {
   dmg: number;
   speed: number;
   ranged: boolean;
-  projectile?: "bolt" | "fireball";
+  projectile?: "bolt" | "fireball" | "tentacle";
   attackCooldown: number;
   gold: number;
   xp: number;
