@@ -8,7 +8,7 @@ export { ROOM_TEMPLATES } from "./templates";
 // engine VIEW/FIELD constants (kept in sync with engine.ts)
 const VIEW_W = 480, VIEW_H = 270, WALL = 16;
 const CX = VIEW_W / 2, CY = VIEW_H / 2;
-const CORRIDOR_HALF = 24;
+const CORRIDOR_HALF = 24; // intentional buffer wider than engine DOOR_HALF (22)
 
 function rectsOverlap(a: RoomRect, b: RoomRect): boolean {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -35,8 +35,10 @@ function templateFits(t: RoomTemplate, openDoors: Dir[]): boolean {
 }
 
 // Pick a random template whose obstacles clear all open doors. null = leave empty.
+// `rng` returns a value in [0, 1) (e.g. Math.random).
 export function pickTemplate(rng: () => number, openDoors: Dir[]): RoomTemplate | null {
   const fits = ROOM_TEMPLATES.filter((t) => templateFits(t, openDoors));
   if (fits.length === 0) return null;
-  return fits[Math.floor(rng() * fits.length)];
+  const idx = Math.min(fits.length - 1, Math.floor(rng() * fits.length));
+  return fits[idx];
 }

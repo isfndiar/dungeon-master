@@ -13,5 +13,8 @@ export interface RoomTemplate {
   id: string;
   obstacles: RoomRect[]; // solid: block player + monsters + projectiles
   hazards: RoomRect[];   // static: damage the player while inside
-  needDoors?: Dir[];     // doors that must stay clear (no obstacle in corridor)
+  // Authoring metadata only: records which doors this template was designed
+  // around (set by the room editor). The picker checks clearance against the
+  // ROOM's actual open doors, not this field.
+  needDoors?: Dir[];
 }

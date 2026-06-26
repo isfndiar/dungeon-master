@@ -1,7 +1,7 @@
 import type { RoomTemplate } from "./types";
 
-// Starter templates. Obstacles avoid the central cross (x 218..262 and
-// y 113..157 strips) so doors on any side remain reachable.
+// Starter templates. Obstacles avoid the central cross (x 216..264 and
+// y 111..159 strips, center +/- CORRIDOR_HALF) so doors on any side remain reachable.
 export const ROOM_TEMPLATES: RoomTemplate[] = [
   {
     id: "pillars",
