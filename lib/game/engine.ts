@@ -953,7 +953,7 @@ export class Engine {
       // ---- Mage ----
       case "frostnova": {
         // expanding wave sweeps outward, freezing and damaging enemies as it passes
-        const novaMaxRadius = 80;
+        const novaMaxRadius = 120;
         const novaSpeed = 260;   // px/s expansion speed
         const novaDuration = novaMaxRadius / novaSpeed;
         this.playerNovaWaves.push({
@@ -971,16 +971,23 @@ export class Engine {
       }
       case "meteor": {
         const tx = this.input.mouseX, ty = this.input.mouseY;
-        // place a telegraphed falling meteor AoE — big hit + epic visual
-        const novaR = 56;
-        const tele = 0.6;
-        this.hazards.push({
-          x: tx, y: ty, radius: novaR,
-          telegraph: tele, telegraphMax: tele,
-          dmg: Math.round(dmg * 2.4),
-          color: "#ff6a1a",
-          exploded: false, fade: 0, kind: "meteor",
-        });
+        const hitR = 70;
+        // damage all enemies in expanded radius
+        for (const e of this.enemies) {
+          if (dist(e.x, e.y, tx, ty) < hitR + e.size * 0.4) this.damageEnemy(e, dmg * 2.4);
+        }
+        // big explosion ring + fire ring + dense particles + shockwave
+        this.spawnRing(tx, ty, "#ff6a1a", hitR);
+        this.spawnRing(tx, ty, "#ffd24a", hitR * 0.6);
+        for (let i = 0; i < 40; i++) {
+          const ang = rand(0, Math.PI * 2);
+          const spd = rand(40, 120);
+          this.particles.push({ x: tx, y: ty, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, life: rand(0.4, 0.7), color: i % 3 === 0 ? "#ffd24a" : i % 3 === 1 ? "#ff6a1a" : "#ff3a1a" });
+        }
+        // fireball burst upward (cosmetic)
+        for (let i = 0; i < 6; i++) {
+          this.particles.push({ x: tx + rand(-20, 20), y: ty, vx: rand(-15, 15), vy: rand(-100, -50), life: 0.6, color: "#ff8a2a" });
+        }
         break;
       }
       case "blink": {

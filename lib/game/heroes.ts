@@ -70,7 +70,7 @@ export const HEROES: Record<HeroId, HeroDef> = {
     skills: [
       { key: "1", name: "Frost Nova", desc: "Freeze & damage nearby foes.",      cooldown: 7, kind: "frostnova" },
       { key: "2", name: "Meteor",     desc: "Big AoE blast at your aim point.",  cooldown: 8, kind: "meteor" },
-      { key: "3", name: "Blink",      desc: "Teleport toward your cursor.",      cooldown: 2, kind: "blink" },
+      { key: "3", name: "Blink",      desc: "Teleport toward your cursor.",      cooldown: 3, kind: "blink" },
     ],
   },
   priest: {
