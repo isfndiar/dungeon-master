@@ -467,8 +467,8 @@ export class TownEngine {
       ctx.textAlign = "left";
     }
 
-    // floating arrow sign near left road exit
-    if (this.currentMapId === "town" && this.px < 100 && this.py > 380 && this.py < 540) {
+    // floating arrow sign near left road exit (only when a left exit exists)
+    if (this.currentMap.exits.left && this.currentMapId === "town" && this.px < 100 && this.py > 380 && this.py < 540) {
       const t = performance.now() / 1000;
       const bounce = Math.sin(t * 3) * 3;
       const ax = 55;

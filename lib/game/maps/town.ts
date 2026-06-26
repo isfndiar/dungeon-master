@@ -130,19 +130,19 @@ export function buildTownMap(): TownMap {
     {
       id: "portal_keeper", name: "Portal Keeper",
       gen: { headgear: "helmet", cloth: "#3a2a6a", trim: "#7a5aaa", hair: "#2a1a3a" },
-      x: 1180, y: 530, action: "village2", facing: -1,
+      x: 1180, y: 530, action: "talk", facing: -1,
       lines: [
-        "This portal leads to the next village.",
-        "Are you ready to explore new lands?",
+        "This portal is dormant for now.",
+        "Other lands may open in time.",
       ],
     },
     {
       id: "west_guide", name: "Road Guide",
       gen: { headgear: "hat", cloth: "#5a4a2a", trim: "#8a7a4a", hair: "#4a3018" },
-      x: 100, y: 490, action: "village2", facing: 1,
+      x: 100, y: 490, action: "talk", facing: 1,
       lines: [
-        "This road leads west to the next village.",
-        "The journey is long but the rewards are great!",
+        "The west road is closed for now.",
+        "Best stay near town, traveler.",
       ],
     },
   ];
@@ -239,7 +239,7 @@ export function buildTownMap(): TownMap {
     npcs,
     spawnX: WORLD_W / 2,
     spawnY: WORLD_H - 60,
-    exits: { left: "west_village" },
+    exits: {}, // west_village disabled — kept in codebase but not accessible
     plazas: [
       { x: 120, y: 340, w: 1040, h: 230 },
       { x: 460, y: 200, w: 360, h: 140 },
