@@ -14,7 +14,7 @@ import {
 } from "./map";
 import { pickTemplate } from "./rooms";
 import type { RoomRect } from "./rooms";
-import { Item, rollItem, rollRarity, ItemStats } from "./items";
+import { Item, rollItem, rollRarity, ItemStats, StatKey, rollConsumable } from "./items";
 import {
   preloadHeroSprites, drawHeroDir, facingFromVec, Facing,
   drawMageFireball, drawElfArrow,
@@ -211,6 +211,9 @@ export interface HudState {
   monstersKilled: number;
   isEndless?: boolean;
   wave?: number;
+  quickSlots: ({ name: string; rarity: string; consumableType?: string; stackCount: number } | null)[];
+  buffs: { stat: string; timer: number; pct: number }[];
+  luckBuff: number;
 }
 
 export class Engine {
@@ -272,6 +275,15 @@ export class Engine {
   private lifeStealBuff = 0;       // seconds remaining of lifesteal boost
   private lifeStealBuffFrac = 0;   // boosted fraction while active
 
+  // quick slots + consumable buff system
+  private quickSlots: (Item | null)[] = [null, null, null, null];
+  private consumableCooldown = 0;
+  private playerBuffs: Partial<Record<StatKey, { mult: number; timer: number }>> = {};
+  private playerHealTimer = 0;
+  private playerHealRate = 0;
+  private playerLuckBuff = 0;
+  private playerLuckTimer = 0;
+
   private enemies: Enemy[] = [];
   private projectiles: Projectile[] = [];
   private floats: FloatText[] = [];
@@ -317,7 +329,8 @@ export class Engine {
     dungeonId: DungeonId,
     cb: EngineCallbacks,
     bonus?: ItemStats,
-    mode: GameMode = "normal"
+    mode: GameMode = "normal",
+    quickSlots?: (Item | null)[]
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
@@ -367,6 +380,11 @@ export class Engine {
         }],
       };
       this.curRoom = this.map.rooms[0];
+    }
+
+    // load quick slots from save
+    if (quickSlots) {
+      this.quickSlots = quickSlots.map(s => s ? { ...s } : null);
     }
   }
 
@@ -640,6 +658,20 @@ export class Engine {
       } else {
         this.curRoom.cleared = true;
         this.roomsCleared++;
+        // consumable drop on room clear
+        if (Math.random() < 0.2) {
+          const drop = rollConsumable(MODE_DEF[this.mode].luck);
+          const emptySlot = this.quickSlots.findIndex(s => s === null);
+          if (emptySlot >= 0) {
+            const existingIdx = this.quickSlots.findIndex(s => s?.name === drop.name && (s.stackCount ?? 1) < (s.maxStack ?? 10));
+            if (existingIdx >= 0) {
+              this.quickSlots[existingIdx]!.stackCount = (this.quickSlots[existingIdx]!.stackCount ?? 1) + 1;
+            } else {
+              this.quickSlots[emptySlot] = drop;
+            }
+          }
+          this.float(`+${drop.name}`, this.px, this.py - 20, "#fd0");
+        }
         if (this.curRoom.isBoss) {
           this.endRaid(true);
           return;
@@ -665,7 +697,18 @@ export class Engine {
     }
 
     if (this.php <= 0) {
-      this.endRaid(false);
+      // check for revive scroll in quick slots
+      const reviveIdx = this.quickSlots.findIndex(s => s?.effect?.type === "revive");
+      if (reviveIdx >= 0) {
+        const scroll = this.quickSlots[reviveIdx]!;
+        this.php = Math.round(this.phpMax * scroll.effect!.value);
+        scroll.stackCount = (scroll.stackCount ?? 1) - 1;
+        if (scroll.stackCount <= 0) this.quickSlots[reviveIdx] = null;
+        this.float("REVIVE!", this.px, this.py - 10, "#fd0");
+        this.invuln = 1;
+      } else {
+        this.endRaid(false);
+      }
     }
   }
 
@@ -849,6 +892,22 @@ export class Engine {
       }
     }
 
+    // consumable cooldown + buff timers
+    if (this.consumableCooldown > 0) this.consumableCooldown -= dt;
+    for (const key of Object.keys(this.playerBuffs) as StatKey[]) {
+      const b = this.playerBuffs[key]!;
+      b.timer -= dt;
+      if (b.timer <= 0) delete this.playerBuffs[key];
+    }
+    if (this.playerHealTimer > 0) {
+      this.playerHealTimer -= dt;
+      this.php = Math.min(this.phpMax, this.php + this.playerHealRate * this.phpMax * dt);
+    }
+    if (this.playerLuckTimer > 0) {
+      this.playerLuckTimer -= dt;
+      if (this.playerLuckTimer <= 0) this.playerLuckBuff = 0;
+    }
+
     // basic attack (rapid fire + CDR shorten cooldown)
     const cdrMult = 1 - this.bonusCdr;
     const atkCd = this.hero.attackCooldown * (this.rapidFire > 0 ? 0.35 : 1) * cdrMult;
@@ -864,6 +923,13 @@ export class Engine {
         this.skillTimers[i] = this.hero.skills[i].cooldown * cdrMult;
       }
     }
+    // quick slots on 4 / 5 / 6 / 7
+    if (this.phase === "playing") {
+      if (this.input.pressed("4")) this.useQuickSlot(0);
+      if (this.input.pressed("5")) this.useQuickSlot(1);
+      if (this.input.pressed("6")) this.useQuickSlot(2);
+      if (this.input.pressed("7")) this.useQuickSlot(3);
+    }
   }
 
   private curDmg(): number {
@@ -872,6 +938,8 @@ export class Engine {
       const missingRatio = 1 - this.php / this.phpMax;
       dmg *= 1 + missingRatio * 0.8;
     }
+    // consumable buff multiplier
+    if (this.playerBuffs.dmg) dmg *= this.playerBuffs.dmg.mult;
     return dmg;
   }
 
@@ -2512,6 +2580,31 @@ export class Engine {
       this.float("+" + heal, this.px, this.py - 16, "#5fff8f");
     }
     this.maybeDropLoot(e);
+    // boss consumable drop
+    if (e.isBoss) {
+      const bossR = Math.random();
+      if (bossR < 0.4) {
+        const drop = rollConsumable(MODE_DEF[this.mode].luck + 2);
+        const existingIdx = this.quickSlots.findIndex(s => s?.name === drop.name && (s.stackCount ?? 1) < (s.maxStack ?? 10));
+        if (existingIdx >= 0) {
+          this.quickSlots[existingIdx]!.stackCount = (this.quickSlots[existingIdx]!.stackCount ?? 1) + 1;
+        } else {
+          const emptySlot = this.quickSlots.findIndex(s => s === null);
+          if (emptySlot >= 0) this.quickSlots[emptySlot] = drop;
+        }
+        this.float(`+${drop.name}`, this.px, this.py - 20, "#f8f");
+      } else if (bossR < 0.5) {
+        const drop = rollConsumable(MODE_DEF[this.mode].luck + 5);
+        const existingIdx = this.quickSlots.findIndex(s => s?.name === drop.name && (s.stackCount ?? 1) < (s.maxStack ?? 10));
+        if (existingIdx >= 0) {
+          this.quickSlots[existingIdx]!.stackCount = (this.quickSlots[existingIdx]!.stackCount ?? 1) + 1;
+        } else {
+          const emptySlot = this.quickSlots.findIndex(s => s === null);
+          if (emptySlot >= 0) this.quickSlots[emptySlot] = drop;
+        }
+        this.float(`+${drop.name}`, this.px, this.py - 20, "#f8f");
+      }
+    }
     this.enemies = this.enemies.filter((x) => x !== e);
   }
 
@@ -2519,7 +2612,7 @@ export class Engine {
     // item level scales with dungeon difficulty + depth (or wave for endless)
     const depth = this.isEndless ? this.wave : this.curRoom.depth;
     const ilvl = Math.max(1, Math.round(this.difficulty * 4 + depth));
-    const luck = MODE_DEF[this.mode].luck;
+    const luck = MODE_DEF[this.mode].luck + this.playerLuckBuff;
     if (e.isBoss) {
       // boss always drops 2 items with luck bias (bosses lean rare+ on top of mode luck)
       const n = 2;
@@ -2611,7 +2704,7 @@ export class Engine {
     }
   }
 
-  private endRaid(win: boolean) {
+  private endRaid(win: boolean, reason?: "escape" | "teleport") {
     if (this.ended) return;
     this.ended = true;
     this.phase = win ? "win" : "lose";
@@ -2621,9 +2714,14 @@ export class Engine {
     this.playerSlow = 0;
     this.playerSnare = 0;
     // endless mode: always keep all loot (earned per wave, not per dungeon)
-    const keepLoot = this.isEndless
-      ? this.loot
-      : win ? this.loot : this.loot.slice(0, Math.floor(this.loot.length / 2));
+    let keepLoot: Item[];
+    if (reason === "escape" || reason === "teleport") {
+      keepLoot = [];
+    } else if (this.isEndless) {
+      keepLoot = this.loot;
+    } else {
+      keepLoot = win ? this.loot : this.loot.slice(0, Math.floor(this.loot.length / 2));
+    }
     const result: RaidResult = {
       win,
       goldGained: this.goldGained,
@@ -2633,6 +2731,47 @@ export class Engine {
       wave: this.isEndless ? this.wave : undefined,
     };
     setTimeout(() => this.cb.onEnd(result), 900);
+  }
+
+  private useQuickSlot(index: number) {
+    if (index < 0 || index > 3) return;
+    const item = this.quickSlots[index];
+    if (!item || !item.effect || this.consumableCooldown > 0) return;
+
+    const eff = item.effect;
+    this.consumableCooldown = eff.type === "heal" || eff.type === "healOverTime" ? 1 : 3;
+
+    switch (eff.type) {
+      case "heal":
+        this.php = Math.min(this.phpMax, this.php + eff.value);
+        this.float(`+${eff.value} HP`, this.px, this.py - 10, "#4f4");
+        break;
+      case "healOverTime":
+        this.playerHealTimer = eff.duration!;
+        this.playerHealRate = eff.value;
+        break;
+      case "buff":
+        this.playerBuffs[eff.stat!] = { mult: 1 + eff.value, timer: eff.duration! };
+        break;
+      case "escape":
+        this.endRaid(false, "escape");
+        break;
+      case "revive":
+        break;
+      case "lootBoost":
+        this.playerLuckBuff = eff.value;
+        this.playerLuckTimer = eff.duration!;
+        break;
+      case "reveal":
+        for (const r of this.map.rooms) r.visited = true;
+        break;
+      case "teleport":
+        this.endRaid(false, "teleport");
+        break;
+    }
+
+    item.stackCount = (item.stackCount ?? 1) - 1;
+    if (item.stackCount <= 0) this.quickSlots[index] = null;
   }
 
   // ---------- render ----------
@@ -3563,6 +3702,9 @@ export class Engine {
       monstersKilled: this.monstersKilled,
       isEndless: this.isEndless,
       wave: this.isEndless ? this.wave : undefined,
+      quickSlots: this.quickSlots.map(s => s ? { name: s.name, rarity: s.rarity, consumableType: s.consumableType, stackCount: s.stackCount ?? 1 } : null),
+      buffs: Object.entries(this.playerBuffs).map(([stat, b]) => ({ stat, timer: b!.timer, pct: Math.round((b!.mult - 1) * 100) })),
+      luckBuff: this.playerLuckTimer > 0 ? this.playerLuckBuff : 0,
     };
     this.cb.onHud(hud);
   }

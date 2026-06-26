@@ -80,7 +80,7 @@ function RaidInner() {
     const engine = new Engine(canvas, heroParam!, heroLevel, dungeonParam!, {
       onHud: (h) => setHud(h),
       onEnd: (res) => finishRaid(res),
-    }, bonus, modeParam);
+    }, bonus, modeParam, save.quickSlots);
     engine.setScale(SCALE);
     engineRef.current = engine;
     engine.start();
@@ -200,6 +200,31 @@ function RaidInner() {
               ))}
             </div>
 
+            <div className="quickslot-bar">
+              {hud.quickSlots.map((slot, i) => (
+                <div key={i} className={`qs-pip${slot ? " has" : ""}`}>
+                  {slot ? (
+                    <>
+                      <ItemIcon slot="consumable" rarity={slot.rarity as any} consumableType={slot.consumableType as any} size={18} />
+                      <span className="qs-count">{slot.stackCount}</span>
+                    </>
+                  ) : null}
+                  <span className="qs-key">{i + 4}</span>
+                </div>
+              ))}
+            </div>
+
+            {hud.buffs.length > 0 && (
+              <div className="buff-bar">
+                {hud.buffs.map((b, i) => (
+                  <div key={i} className="buff-pill" title={`${b.stat} +${b.pct}%`}>
+                    {b.stat === "dmg" ? "⚔" : b.stat === "speed" ? "⚡" : "🛡"}
+                    <span>{Math.ceil(b.timer)}s</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {hud.bossName && hud.bossMax ? (
               <div className={"boss-bar" + (hud.bossBroken ? " broken" : "")}>
                 <div className="nm">
@@ -274,7 +299,7 @@ function RaidInner() {
                 <div className="loot-list">
                   {result.loot.map((it) => (
                     <div className="loot-item" key={it.id}>
-                      <ItemIcon slot={it.slot} rarity={it.rarity} size={28} />
+                      <ItemIcon slot={it.slot} rarity={it.rarity} size={28} consumableType={it.consumableType} />
                       <div className="loot-text">
                         <span className="loot-name" style={{ color: RARITY_COLOR[it.rarity] }}>
                           {it.name}

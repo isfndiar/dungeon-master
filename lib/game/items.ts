@@ -1,7 +1,7 @@
 import { HeroId } from "./heroes";
 
 // ---------------- Slots ----------------
-export type EquipSlot = "weapon" | "helmet" | "armor" | "boots" | "ring";
+export type EquipSlot = "weapon" | "helmet" | "armor" | "boots" | "ring" | "consumable";
 export const EQUIP_SLOTS: EquipSlot[] = ["weapon", "helmet", "armor", "boots", "ring"];
 
 export const SLOT_LABEL: Record<EquipSlot, string> = {
@@ -10,6 +10,7 @@ export const SLOT_LABEL: Record<EquipSlot, string> = {
   armor: "Armor",
   boots: "Boots",
   ring: "Ring",
+  consumable: "Consumable",
 };
 
 // ---------------- Stats ----------------
@@ -23,6 +24,15 @@ export interface ItemStats {
 }
 
 export type StatKey = keyof ItemStats;
+
+export type ConsumableType = "potion" | "scroll";
+
+export interface ConsumableEffect {
+  type: "heal" | "healOverTime" | "buff" | "revive" | "escape" | "lootBoost" | "reveal" | "teleport";
+  value: number;
+  stat?: StatKey;
+  duration?: number;
+}
 
 export const STAT_LABEL: Record<StatKey, string> = {
   dmg: "DMG",
@@ -76,6 +86,11 @@ export interface Item {
   stats: ItemStats;
   hero: HeroId | "any"; // weapons are hero-specific; others "any"
   ilvl: number;         // for sorting / power feel
+  consumableType?: ConsumableType;
+  effect?: ConsumableEffect;
+  stackCount?: number;
+  maxStack?: number;
+  price?: number;
 }
 
 // Primary stat each slot focuses on.
@@ -85,6 +100,7 @@ const SLOT_PRIMARY: Record<EquipSlot, StatKey> = {
   armor: "hp",
   boots: "speed",
   ring: "cdr",
+  consumable: "hp",
 };
 
 // Base roll range per stat (before rarity multiplier), at item level 1.
@@ -103,6 +119,7 @@ const SLOT_SECONDARY: Record<EquipSlot, StatKey[]> = {
   armor: ["dmg", "speed", "crit"],
   boots: ["hp", "crit", "cdr"],
   ring: ["crit", "dmg", "hp", "speed"],
+  consumable: [],
 };
 
 // Hero-specific weapon names.
@@ -119,6 +136,7 @@ const ARMOR_NAMES: Record<Exclude<EquipSlot, "weapon">, string[]> = {
   armor: ["Tunic", "Mail", "Plate", "Aegis"],
   boots: ["Shoes", "Greaves", "Treads", "Sabatons"],
   ring: ["Band", "Ring", "Loop", "Signet"],
+  consumable: [],
 };
 
 const RARITY_PREFIX: Record<Rarity, string[]> = {
@@ -258,4 +276,96 @@ export function itemPower(item: Item): number {
     (s.cdr ?? 0) * 200 +
     (s.crit ?? 0) * 200
   );
+}
+
+export interface ConsumableDef {
+  name: string;
+  consumableType: ConsumableType;
+  effect: ConsumableEffect;
+  maxStack: number;
+  price: number;
+  rarity: Rarity;
+}
+
+export const CONSUMABLE_DEFS: ConsumableDef[] = [
+  { name: "Minor Heal Potion", consumableType: "potion", effect: { type: "heal", value: 30 }, maxStack: 10, price: 15, rarity: "common" },
+  { name: "Heal Potion", consumableType: "potion", effect: { type: "heal", value: 60 }, maxStack: 10, price: 35, rarity: "uncommon" },
+  { name: "Greater Heal Potion", consumableType: "potion", effect: { type: "heal", value: 120 }, maxStack: 10, price: 80, rarity: "rare" },
+  { name: "Regen Potion", consumableType: "potion", effect: { type: "healOverTime", value: 0.08, duration: 6 }, maxStack: 10, price: 40, rarity: "uncommon" },
+  { name: "Might Potion", consumableType: "potion", effect: { type: "buff", value: 0.3, stat: "dmg", duration: 15 }, maxStack: 10, price: 50, rarity: "uncommon" },
+  { name: "Swift Potion", consumableType: "potion", effect: { type: "buff", value: 0.4, stat: "speed", duration: 15 }, maxStack: 10, price: 45, rarity: "uncommon" },
+  { name: "Ironskin Potion", consumableType: "potion", effect: { type: "buff", value: 0.5, stat: "hp", duration: 10 }, maxStack: 10, price: 75, rarity: "rare" },
+  { name: "Escape Scroll", consumableType: "scroll", effect: { type: "escape", value: 0 }, maxStack: 5, price: 30, rarity: "common" },
+  { name: "Revive Scroll", consumableType: "scroll", effect: { type: "revive", value: 0.5 }, maxStack: 5, price: 120, rarity: "rare" },
+  { name: "Loot Scroll", consumableType: "scroll", effect: { type: "lootBoost", value: 4, duration: 60 }, maxStack: 5, price: 200, rarity: "epic" },
+  { name: "Town Portal Scroll", consumableType: "scroll", effect: { type: "teleport", value: 0 }, maxStack: 5, price: 60, rarity: "uncommon" },
+  { name: "Identify Scroll", consumableType: "scroll", effect: { type: "reveal", value: 0 }, maxStack: 5, price: 25, rarity: "common" },
+];
+
+export function rollConsumable(luck = 0): Item {
+  let rarity = rollRarity(luck);
+  let pool = CONSUMABLE_DEFS.filter(d => d.rarity === rarity);
+  while (pool.length === 0 && rarity !== "common") {
+    const order: Rarity[] = ["legendary", "epic", "rare", "uncommon", "common"];
+    const idx = order.indexOf(rarity);
+    rarity = order[idx + 1] ?? "common";
+    pool = CONSUMABLE_DEFS.filter(d => d.rarity === rarity);
+  }
+  const def = pool[Math.floor(Math.random() * pool.length)];
+  return {
+    id: uid(),
+    slot: "consumable",
+    rarity: def.rarity,
+    name: def.name,
+    stats: {},
+    hero: "any",
+    ilvl: 1,
+    consumableType: def.consumableType,
+    effect: { ...def.effect },
+    stackCount: 1,
+    maxStack: def.maxStack,
+    price: def.price,
+  };
+}
+
+export function rollConsumableFromDef(def: ConsumableDef): Item {
+  return {
+    id: uid(),
+    slot: "consumable",
+    rarity: def.rarity,
+    name: def.name,
+    stats: {},
+    hero: "any",
+    ilvl: 1,
+    consumableType: def.consumableType,
+    effect: { ...def.effect },
+    stackCount: 1,
+    maxStack: def.maxStack,
+    price: def.price,
+  };
+}
+
+export function getConsumableBuyPrice(name: string): number {
+  return CONSUMABLE_DEFS.find(d => d.name === name)?.price ?? 0;
+}
+
+export function getConsumableSellPrice(name: string): number {
+  return Math.floor(getConsumableBuyPrice(name) * 0.5);
+}
+
+export function isConsumable(item: Item): boolean {
+  return item.slot === "consumable";
+}
+
+export function formatEffect(effect: ConsumableEffect): string {
+  switch (effect.type) {
+    case "heal": return `Restore ${effect.value} HP`;
+    case "healOverTime": return `Restore ${(effect.value * 100).toFixed(0)}% HP/s for ${effect.duration}s`;
+    case "buff": return `+${(effect.value * 100).toFixed(0)}% ${effect.stat} for ${effect.duration}s`;
+    case "revive": return `Revive with ${(effect.value * 100).toFixed(0)}% HP on death`;
+    case "escape": return `Escape dungeon (keep gold, no loot)`;
+    case "lootBoost": return `+${effect.value} luck for ${effect.duration}s`;
+    case "reveal": return `Reveal all rooms on minimap`;
+    case "teleport": return `Teleport to town`;
+  }
 }

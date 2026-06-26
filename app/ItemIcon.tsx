@@ -93,12 +93,54 @@ const RING: Cell[] = [
   ...rect(7, 4, 7, 4, 2),  // gem sparkle
 ];
 
-const SLOT_MAP: Record<EquipSlot, Cell[]> = {
+const CONSUMABLE_POTION: Cell[] = [
+  // potion flask: cork, narrow neck, round body, liquid fill, shine
+  ...rect(6, 1, 9, 1, 3),   // cork top
+  ...rect(7, 2, 8, 2, 3),   // cork lip
+  ...rect(6, 3, 9, 4, 1),   // neck (dark glass)
+  ...rect(5, 5, 10, 5, 0),  // shoulder
+  ...rect(4, 6, 11, 6, 0),  // upper body
+  ...rect(3, 7, 12, 12, 0), // body
+  ...rect(4, 13, 11, 13, 1), // base rim
+  ...rect(5, 14, 10, 14, 3), // base foot
+  // liquid fill (shade 2 = light/highlight color)
+  ...rect(5, 7, 10, 12, 2),
+  // glass shine (shade 2)
+  ...rect(4, 6, 4, 11, 2),
+  // bubble
+  ...rect(8, 9, 8, 9, 2),
+];
+
+const CONSUMABLE_SCROLL: Cell[] = [
+  // rolled parchment scroll
+  // top roll
+  ...rect(4, 1, 11, 1, 3),  // top roll highlight
+  ...rect(3, 2, 12, 2, 0),  // top roll body
+  ...rect(4, 3, 11, 3, 1),  // top roll shadow
+  // parchment body
+  ...rect(4, 4, 11, 11, 0), // main body
+  ...rect(5, 4, 10, 11, 2), // inner parchment (lighter)
+  // text lines (shade 1 = dark ink)
+  ...rect(5, 5, 10, 5, 1),
+  ...rect(5, 7, 9, 7, 1),
+  ...rect(5, 9, 10, 9, 1),
+  // bottom roll
+  ...rect(4, 12, 11, 12, 1), // bottom roll shadow
+  ...rect(3, 13, 12, 13, 0), // bottom roll body
+  ...rect(4, 14, 11, 14, 3), // bottom roll highlight
+  // ribbon tie (shade 3)
+  ...rect(7, 10, 8, 14, 3),
+];
+
+const SLOT_MAP: Record<string, Cell[]> = {
   weapon: WEAPON,
   helmet: HELMET,
   armor: ARMOR,
   boots: BOOTS,
   ring: RING,
+  consumable: CONSUMABLE_POTION,
+  consumable_potion: CONSUMABLE_POTION,
+  consumable_scroll: CONSUMABLE_SCROLL,
 };
 
 // darken / lighten a hex color by a factor
@@ -121,10 +163,12 @@ export function ItemIcon({
   slot,
   rarity,
   size = 28,
+  consumableType,
 }: {
   slot: EquipSlot;
   rarity: Rarity;
   size?: number;
+  consumableType?: "potion" | "scroll";
 }) {
   const base = RARITY_COLOR[rarity];
   const palette = [
@@ -133,7 +177,12 @@ export function ItemIcon({
     shade(base, 0.45),    // 2 light highlight
     "#7a6a52",            // 3 metal/accent (neutral)
   ];
-  const cells = SLOT_MAP[slot];
+  const key = slot === "consumable" && consumableType === "scroll"
+    ? "consumable_scroll"
+    : slot === "consumable"
+    ? "consumable_potion"
+    : slot;
+  const cells = SLOT_MAP[key];
   const px = size / 16;
 
   return (
