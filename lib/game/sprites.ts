@@ -677,6 +677,10 @@ export const fxSprites: Record<string, SpriteDef> = {
     palette: { a: "#b388ff", b: "#7ad7ff" },
     rows: ["..b..", ".bab.", "baaab", ".bab.", "..b.."],
   },
+  tentacle: {
+    palette: { a: "#4a2a6a", b: "#8a5aba", t: "#2a1a3a" },
+    rows: [".....", "...b.", ".baab", "..ab.", "....."],
+  },
   sword: {
     palette: { h: "#6f7a8a", s: "#dfe6f5", w: "#ffffff", b: "#9aa8c8" },
     rows: ["....w", "...ws", "bbshs", "...ws", "....w"],

@@ -144,7 +144,7 @@ export const BOSSES: Record<BossKind, BossDef> = {
   },
   octopus: {
     kind: "octopus", name: "Kraken", hp: 750, dmg: 20, speed: 35,
-    ranged: true, projectile: "bolt", attackCooldown: 1.2, gold: 180, xp: 280, size: 56,
+    ranged: true, projectile: "tentacle", attackCooldown: 1.2, gold: 180, xp: 280, size: 56,
     spells: [
       // phase 1
       { kind: "inkBlast",      cooldown: 5,  tier: 1 },
