@@ -12,6 +12,7 @@ export function Joystick({ input }: JoystickProps) {
   const thumbRef = useRef<HTMLDivElement>(null);
   const originRef = useRef({ x: 0, y: 0 });
   const activeRef = useRef(false);
+  const touchIdRef = useRef<number | null>(null);
 
   const RADIUS = 50;
 
@@ -36,6 +37,7 @@ export function Joystick({ input }: JoystickProps) {
 
   const reset = useCallback(() => {
     activeRef.current = false;
+    touchIdRef.current = null;
     const thumb = thumbRef.current;
     if (thumb) thumb.style.transform = "translate(0,0)";
     input.virtualDirX = 0;
@@ -48,17 +50,34 @@ export function Joystick({ input }: JoystickProps) {
 
     const onStart = (e: TouchEvent) => {
       e.preventDefault();
+      const t = e.changedTouches[0];
       activeRef.current = true;
-      const t = e.touches[0];
+      touchIdRef.current = t.identifier;
       updateThumb(t.clientX, t.clientY);
     };
     const onMove = (e: TouchEvent) => {
-      if (!activeRef.current) return;
+      if (touchIdRef.current === null) return;
+      // Find our specific touch in the list
+      let ourTouch: Touch | null = null;
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === touchIdRef.current) {
+          ourTouch = e.touches[i];
+          break;
+        }
+      }
+      if (!ourTouch) return;
       e.preventDefault();
-      const t = e.touches[0];
-      updateThumb(t.clientX, t.clientY);
+      updateThumb(ourTouch.clientX, ourTouch.clientY);
     };
-    const onEnd = () => reset();
+    const onEnd = (e: TouchEvent) => {
+      if (touchIdRef.current === null) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === touchIdRef.current) {
+          reset();
+          return;
+        }
+      }
+    };
 
     base.addEventListener("touchstart", onStart, { passive: false });
     window.addEventListener("touchmove", onMove, { passive: false });

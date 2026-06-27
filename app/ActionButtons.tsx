@@ -15,6 +15,7 @@ export function ActionButtons({ input, skills }: ActionButtonsProps) {
   const atkRef = useRef<HTMLDivElement>(null);
   const atkThumbRef = useRef<HTMLDivElement>(null);
   const atkOriginRef = useRef({ x: 0, y: 0 });
+  const atkTouchIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const el = atkRef.current;
@@ -22,7 +23,8 @@ export function ActionButtons({ input, skills }: ActionButtonsProps) {
 
     const onStart = (e: TouchEvent) => {
       e.preventDefault();
-      const t = e.touches[0];
+      const t = e.changedTouches[0];
+      atkTouchIdRef.current = t.identifier;
       atkOriginRef.current = { x: t.clientX, y: t.clientY };
       input.virtualAimActive = true;
       input.virtualAimX = 0;
@@ -31,11 +33,19 @@ export function ActionButtons({ input, skills }: ActionButtonsProps) {
     };
 
     const onMove = (e: TouchEvent) => {
-      if (!input.virtualAimActive) return;
+      if (atkTouchIdRef.current === null) return;
+      // Find our specific touch in the list
+      let ourTouch: Touch | null = null;
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === atkTouchIdRef.current) {
+          ourTouch = e.touches[i];
+          break;
+        }
+      }
+      if (!ourTouch) return;
       e.preventDefault();
-      const t = e.touches[0];
-      let dx = t.clientX - atkOriginRef.current.x;
-      let dy = t.clientY - atkOriginRef.current.y;
+      let dx = ourTouch.clientX - atkOriginRef.current.x;
+      let dy = ourTouch.clientY - atkOriginRef.current.y;
       const dist = Math.hypot(dx, dy);
       if (dist > AIM_RADIUS) {
         dx = (dx / dist) * AIM_RADIUS;
@@ -48,13 +58,20 @@ export function ActionButtons({ input, skills }: ActionButtonsProps) {
       }
     };
 
-    const onEnd = () => {
-      input.virtualAimActive = false;
-      input.virtualAttack = false;
-      input.virtualAimX = 0;
-      input.virtualAimY = 0;
-      if (atkThumbRef.current) {
-        atkThumbRef.current.style.transform = "translate(0,0)";
+    const onEnd = (e: TouchEvent) => {
+      if (atkTouchIdRef.current === null) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === atkTouchIdRef.current) {
+          atkTouchIdRef.current = null;
+          input.virtualAimActive = false;
+          input.virtualAttack = false;
+          input.virtualAimX = 0;
+          input.virtualAimY = 0;
+          if (atkThumbRef.current) {
+            atkThumbRef.current.style.transform = "translate(0,0)";
+          }
+          return;
+        }
       }
     };
 

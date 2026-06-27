@@ -179,14 +179,39 @@ function RaidInner() {
     setResult({ ...res, goldGained: gold, xpGained: xp });
   };
 
-  const focusGame = () => {
+  const focusGame = async () => {
     setNeedFocus(false);
     canvasRef.current?.focus();
     engineRef.current?.setPaused(false);
     if (bgmEnabled && audioRef.current) {
       audioRef.current.play().catch(() => {});
     }
+    // Mobile: request fullscreen + lock landscape
+    if (isMobile) {
+      try {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        // Lock orientation after fullscreen (required by most browsers)
+        const orient = screen.orientation as any;
+        if (orient?.lock) await orient.lock("landscape");
+      } catch {
+        // Orientation lock not supported or denied — ignore
+      }
+    }
   };
+
+  // Cleanup: unlock orientation on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        const orient = screen.orientation as any;
+        if (orient?.unlock) orient.unlock();
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      } catch { /* ignore */ }
+    };
+  }, []);
 
   const toggleBgm = () => {
     const next = !bgmEnabled;
