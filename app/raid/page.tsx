@@ -10,6 +10,8 @@ import { Item, itemStatLines, formatStat, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL
 import { ItemIcon } from "../ItemIcon";
 
 const SCALE = 2;
+const BGM_SRC = "/music/Vestibulum_Mortis.mp3";
+const BGM_KEY = "dungeon-hunter-bgm-enabled";
 
 function Minimap({ data }: { data: MiniMap }) {
   const cell = 14;   // px per room
@@ -56,10 +58,15 @@ function RaidInner() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [hud, setHud] = useState<HudState | null>(null);
   const [result, setResult] = useState<RaidResult | null>(null);
   const [levelUps, setLevelUps] = useState<{ name: string; level: number }[]>([]);
   const [needFocus, setNeedFocus] = useState(true);
+  const [bgmEnabled, setBgmEnabled] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem(BGM_KEY) !== "off";
+  });
 
   const valid =
     heroParam && HERO_IDS.includes(heroParam) &&
@@ -90,8 +97,19 @@ function RaidInner() {
     };
     document.addEventListener("visibilitychange", onVis);
 
+    // BGM
+    const audio = new Audio(BGM_SRC);
+    audio.loop = true;
+    audio.volume = 0.4;
+    audioRef.current = audio;
+    if (localStorage.getItem(BGM_KEY) !== "off") {
+      audio.play().catch(() => {});
+    }
+
     return () => {
       document.removeEventListener("visibilitychange", onVis);
+      audio.pause();
+      audio.src = "";
       engine.destroy();
       engineRef.current = null;
     };
@@ -126,6 +144,19 @@ function RaidInner() {
     setNeedFocus(false);
     canvasRef.current?.focus();
     engineRef.current?.setPaused(false);
+    if (bgmEnabled && audioRef.current) {
+      audioRef.current.play().catch(() => {});
+    }
+  };
+
+  const toggleBgm = () => {
+    const next = !bgmEnabled;
+    setBgmEnabled(next);
+    localStorage.setItem(BGM_KEY, next ? "on" : "off");
+    if (audioRef.current) {
+      if (next) audioRef.current.play().catch(() => {});
+      else audioRef.current.pause();
+    }
   };
 
   if (!valid) return null;
@@ -158,7 +189,12 @@ function RaidInner() {
                 </div>
               </div>
               <div className="hud-right">
-                <div>{hud.dungeonName}</div>
+                <div className="hud-top-row">
+                  <div>{hud.dungeonName}</div>
+                  <button className="bgm-btn" onClick={toggleBgm} title={bgmEnabled ? "Mute music" : "Play music"}>
+                    {bgmEnabled ? "♫" : "♫̸"}
+                  </button>
+                </div>
                 <div className="mode-badge" style={{ color: MODE_DEF[modeParam].color }}>
                   {MODE_DEF[modeParam].label} {MODE_DEF[modeParam].mult}x
                 </div>
