@@ -31,7 +31,7 @@ const IDLE_BOT_FRAC = 0.85;  // base idle sprite: content bot ~0.83-0.86
 export class TownEngine {
   private ctx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
-  private input: Input;
+  readonly input: Input;
   private raf = 0;
   private last = 0;
   private running = false;
@@ -245,11 +245,8 @@ export class TownEngine {
       this.updateTransition(dt);
       return;
     }
-    let mx = 0, my = 0;
-    if (this.input.pressed("a", "arrowleft")) mx -= 1;
-    if (this.input.pressed("d", "arrowright")) mx += 1;
-    if (this.input.pressed("w", "arrowup")) my -= 1;
-    if (this.input.pressed("s", "arrowdown")) my += 1;
+    const dir = this.input.getMoveDir();
+    let mx = dir.x, my = dir.y;
     const len = Math.hypot(mx, my);
     this.moving = len > 0;
     if (len > 0) {
@@ -339,7 +336,7 @@ export class TownEngine {
     }
 
     // interact via E / Space (edge-triggered)
-    const pressed = this.input.pressed("e", " ");
+    const pressed = this.input.pressed("e", " ") || this.input.virtualInteract;
     if (pressed && !this.prevInteract && this.nearby) {
       this.cb.onInteract(this.nearby);
     }

@@ -1361,5 +1361,26 @@ button {
 .atk-btn:active {
   background: rgba(255,80,80,0.5);
 }
+.interact-btn {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(74,180,255,0.25);
+  border: 3px solid rgba(74,180,255,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 900;
+  color: #4ab4ff;
+  text-shadow: 1px 1px 0 #000;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+}
+.interact-btn:active {
+  background: rgba(74,180,255,0.45);
+}
 
 

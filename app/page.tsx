@@ -19,6 +19,8 @@ import {
   CONSUMABLE_DEFS, rollConsumableFromDef, formatEffect, getConsumableSellPrice, isConsumable,
 } from "@/lib/game/items";
 import { ItemIcon } from "./ItemIcon";
+import { Joystick } from "./Joystick";
+import { InteractButton } from "./InteractButton";
 
 type Panel = "none" | "heroes" | "equipment" | "dungeon" | "market";
 
@@ -60,6 +62,7 @@ export default function Town() {
   const [save, setSave] = useState<SaveData | null>(null);
   const [loadPct, setLoadPct] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [engineReady, setEngineReady] = useState(false);
   const [panel, setPanel] = useState<Panel>("none");
   const [dialog, setDialog] = useState<{ name: string; lines: string[]; idx: number } | null>(null);
   const [nearbyName, setNearbyName] = useState<string | null>(null);
@@ -124,6 +127,7 @@ export default function Town() {
     });
     engineRef.current = engine;
     engine.start();
+    setEngineReady(true);
 
     const ro = new ResizeObserver(() => engine.resize());
     ro.observe(canvas);
@@ -135,6 +139,7 @@ export default function Town() {
       window.removeEventListener("resize", onWinResize);
       engine.destroy();
       engineRef.current = null;
+      setEngineReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
@@ -265,11 +270,19 @@ export default function Town() {
             <ShopPanel save={save} commit={commit} />
           </Modal>
         )}
+
+        {engineReady && engineRef.current && (
+          <div className="mobile-controls">
+            <Joystick input={engineRef.current.input} />
+            <InteractButton input={engineRef.current.input} />
+          </div>
+        )}
       </div>
 
       <div className="town-hint">
-        WASD / Arrows: walk • E or click: interact • C: Character
-        {nearbyName && <span className="near"> — near {nearbyName}</span>}
+        {typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)
+          ? `Walk around • tap E to interact${nearbyName ? ` — near ${nearbyName}` : ""}`
+          : `WASD / Arrows: walk • E or click: interact • C: Character${nearbyName ? ` — near ${nearbyName}` : ""}`}
       </div>
     </main>
   );

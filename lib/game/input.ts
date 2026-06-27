@@ -7,6 +7,7 @@ export class Input {
   virtualDirX = 0;
   virtualDirY = 0;
   virtualAttack = false;
+  virtualInteract = false;
   virtualSkills: boolean[] = [false, false, false];
   private el: HTMLElement;
   private scale = 1;
