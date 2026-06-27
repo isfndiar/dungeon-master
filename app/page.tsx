@@ -115,7 +115,13 @@ export default function Town() {
     audio.volume = 0.3;
     audioRef.current = audio;
     if (localStorage.getItem(BGM_KEY) !== "off") {
-      audio.play().catch(() => {});
+      const tryPlay = () => {
+        audio.play().catch(() => {});
+        window.removeEventListener("click", tryPlay);
+        window.removeEventListener("touchstart", tryPlay);
+      };
+      window.addEventListener("click", tryPlay, { once: true });
+      window.addEventListener("touchstart", tryPlay, { once: true });
     }
     return () => { audio.pause(); audio.src = ""; };
   }, [loaded]);
