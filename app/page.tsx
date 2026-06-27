@@ -234,40 +234,7 @@ export default function Town() {
 
   return (
     <main className="town-page">
-      <div className="town-topbar">
-        <div className="town-title">DUNGEON HUNTER</div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <div className="gold-badge">◆ {save.gold}</div>
-          <div className="hero-chip">
-            <HeroPreview id={hero} size={20} />
-            <span>{HEROES[hero].name} Lv{save.heroes[hero].level}</span>
-          </div>
-          <button className="tiny-btn" onClick={doReset}>RESET</button>
-        </div>
-      </div>
-
-      <div className="town-nav">
-        {[
-          { key: "heroes" as const, label: "Character", hotkey: "C" },
-          { key: "market" as const, label: "Market" },
-          { key: "equipment" as const, label: "Inventory" },
-          { key: "dungeon" as const, label: "Dungeon" },
-        ].map((item) => (
-          <button
-            key={item.key}
-            className={"town-nav-btn" + (panel === item.key ? " active" : "")}
-            onClick={() => setPanel(item.key)}
-          >
-            <span className="nav-label">{item.label}</span>
-            {item.hotkey && <span className="nav-hotkey">{item.hotkey}</span>}
-          </button>
-        ))}
-      </div>
-
       <div className="town-frame">
-        <button className="bgm-btn town-bgm" onClick={toggleBgm} title={bgmEnabled ? "Mute music" : "Play music"}>
-          {bgmEnabled ? "♫" : "♫̸"}
-        </button>
         <canvas
           ref={canvasRef}
           tabIndex={0}
@@ -294,31 +261,6 @@ export default function Town() {
           </div>
         )}
 
-        {panel === "heroes" && (
-          <Modal title="Choose Your Champion" onClose={closePanel}>
-            <HeroSelect save={save} commit={commit} onPick={closePanel} />
-          </Modal>
-        )}
-        {panel === "equipment" && (
-          <Modal title={`${HEROES[hero].name} — Equipment`} onClose={closePanel}>
-            <EquipmentPanel
-              save={save} hero={hero}
-              invFilter={invFilter} setInvFilter={setInvFilter}
-              commit={commit}
-            />
-          </Modal>
-        )}
-        {panel === "dungeon" && (
-          <Modal title="Choose a Dungeon" onClose={closePanel}>
-            <DungeonSelect save={save} hero={hero} router={router} />
-          </Modal>
-        )}
-        {panel === "market" && (
-          <Modal title="Merchant Pell's Shop" onClose={closePanel}>
-            <ShopPanel save={save} commit={commit} />
-          </Modal>
-        )}
-
         {engineReady && engineRef.current && (
           <div className="mobile-controls">
             <Joystick input={engineRef.current.input} />
@@ -327,11 +269,67 @@ export default function Town() {
         )}
       </div>
 
+      <div className="town-topbar">
+        <div className="gold-badge">◆ {save.gold}</div>
+        <div className="hero-chip">
+          <HeroPreview id={hero} size={20} />
+          <span>{HEROES[hero].name} Lv{save.heroes[hero].level}</span>
+        </div>
+      </div>
+
+      <button className="bgm-btn town-bgm" onClick={toggleBgm} title={bgmEnabled ? "Mute music" : "Play music"}>
+        {bgmEnabled ? "♫" : "♫̸"}
+      </button>
+
+      <div className="town-nav">
+        {[
+          { key: "heroes" as const, label: "Character", icon: "⚔", hotkey: "C" },
+          { key: "market" as const, label: "Market", icon: "🛒" },
+          { key: "equipment" as const, label: "Inventory", icon: "🎒" },
+          { key: "dungeon" as const, label: "Dungeon", icon: "🏰" },
+        ].map((item) => (
+          <button
+            key={item.key}
+            className={"town-nav-btn" + (panel === item.key ? " active" : "")}
+            onClick={() => setPanel(item.key)}
+            title={item.label}
+          >
+            <span className="nav-icon">{item.icon}</span>
+            <span className="nav-tooltip">{item.label}{item.hotkey ? ` (${item.hotkey})` : ""}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="town-hint">
         {typeof window !== "undefined" && ("ontouchstart" in window || navigator.maxTouchPoints > 0)
           ? `Walk around • tap E to interact${nearbyName ? ` — near ${nearbyName}` : ""}`
-          : `WASD / Arrows: walk • E or click: interact • C: Character${nearbyName ? ` — near ${nearbyName}` : ""}`}
+          : `WASD: walk • E/click: interact • C: Character${nearbyName ? ` — near ${nearbyName}` : ""}`}
       </div>
+
+      {panel === "heroes" && (
+        <Modal title="Choose Your Champion" onClose={closePanel}>
+          <HeroSelect save={save} commit={commit} onPick={closePanel} />
+        </Modal>
+      )}
+      {panel === "equipment" && (
+        <Modal title={`${HEROES[hero].name} — Equipment`} onClose={closePanel}>
+          <EquipmentPanel
+            save={save} hero={hero}
+            invFilter={invFilter} setInvFilter={setInvFilter}
+            commit={commit}
+          />
+        </Modal>
+      )}
+      {panel === "dungeon" && (
+        <Modal title="Choose a Dungeon" onClose={closePanel}>
+          <DungeonSelect save={save} hero={hero} router={router} />
+        </Modal>
+      )}
+      {panel === "market" && (
+        <Modal title="Merchant Pell's Shop" onClose={closePanel}>
+          <ShopPanel save={save} commit={commit} />
+        </Modal>
+      )}
     </main>
   );
 }

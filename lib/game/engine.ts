@@ -926,8 +926,22 @@ export class Engine {
     const keys: ("1" | "2" | "3")[] = ["1", "2", "3"];
     for (let i = 0; i < 3; i++) {
       if ((this.input.pressed(keys[i]) || this.input.consumeSkill(i)) && this.skillTimers[i] <= 0 && this.phase === "playing") {
-        this.doSkill(this.hero.skills[i].kind);
+        // If skill was aimed via mobile joystick, override aim direction
+        const skillAim = this.input.consumeSkillAim(i);
+        const prevAimX = this.aimX;
+        const prevAimY = this.aimY;
+        if (skillAim) {
+          this.aimX = skillAim.aimX;
+          this.aimY = skillAim.aimY;
+          this.faceLeft = this.aimX < 0;
+        }
+        this.doSkill(this.hero.skills[i].kind, !!skillAim);
         this.skillTimers[i] = this.hero.skills[i].cooldown * cdrMult;
+        // Restore aim if it was overridden
+        if (skillAim) {
+          this.aimX = prevAimX;
+          this.aimY = prevAimY;
+        }
       }
     }
     // quick slots on 4 / 5 / 6 / 7
@@ -979,7 +993,7 @@ export class Engine {
     }
   }
 
-  private doSkill(k: SkillKind) {
+  private doSkill(k: SkillKind, mobileAim = false) {
     const dmg = this.curDmg();
     switch (k) {
       // ---- Knight ----
@@ -1065,7 +1079,16 @@ export class Engine {
         break;
       }
       case "meteor": {
-        const tx = this.input.mouseX, ty = this.input.mouseY;
+        // Desktop: target at mouse position. Mobile: aim direction × range
+        let tx: number, ty: number;
+        if (mobileAim) {
+          const mRange = 90;
+          tx = clamp(this.px + this.aimX * mRange, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+          ty = clamp(this.py + this.aimY * mRange, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        } else {
+          tx = this.input.mouseX;
+          ty = this.input.mouseY;
+        }
         const hitR = 70;
         // damage all enemies in expanded radius
         for (const e of this.enemies) {
@@ -1086,8 +1109,16 @@ export class Engine {
         break;
       }
       case "blink": {
-        const tx = clamp(this.input.mouseX, FIELD.x + 8, FIELD.x + FIELD.w - 8);
-        const ty = clamp(this.input.mouseY, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        // Desktop: target at mouse position. Mobile: aim direction × range
+        let tx: number, ty: number;
+        if (mobileAim) {
+          const bRange = 90;
+          tx = clamp(this.px + this.aimX * bRange, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+          ty = clamp(this.py + this.aimY * bRange, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        } else {
+          tx = clamp(this.input.mouseX, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+          ty = clamp(this.input.mouseY, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        }
         this.spawnRing(this.px, this.py, "#b388ff", 18);
         {
           const resolved = this.avoidObstacle(tx, ty, this.px, this.py, 7);
@@ -3161,6 +3192,204 @@ export class Engine {
         ctx.restore();
       }
     }
+
+    // Skill targeting indicator (mobile: shows where skill will land)
+    this.drawSkillTargetIndicator();
+  }
+
+  private drawSkillTargetIndicator() {
+    const ctx = this.ctx;
+    // Check if any skill is being aimed
+    let aimIdx = -1;
+    for (let i = 0; i < 3; i++) {
+      if (this.input.virtualSkillAim[i]?.active) {
+        aimIdx = i;
+        break;
+      }
+    }
+    if (aimIdx < 0) return;
+
+    const sa = this.input.virtualSkillAim[aimIdx];
+    const len = Math.hypot(sa.aimX, sa.aimY);
+    if (len < 0.1) return; // no direction yet
+
+    const dirX = sa.aimX / len;
+    const dirY = sa.aimY / len;
+    const skill = this.hero.skills[aimIdx];
+    if (!skill) return;
+
+    const color = skill.color || "#ffd24a";
+    const range = skill.range || 60;
+    const radius = skill.radius || 40;
+
+    ctx.save();
+
+    switch (skill.target) {
+      case "directional": {
+        const tx = clamp(this.px + dirX * range, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+        const ty = clamp(this.py + dirY * range, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        this.drawDirIndicator(ctx, tx, ty, color, 10);
+        break;
+      }
+      case "aoe_target": {
+        const tx = clamp(this.px + dirX * range, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+        const ty = clamp(this.py + dirY * range, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        this.drawAoeCircleIndicator(ctx, tx, ty, radius, color);
+        break;
+      }
+      case "blink": {
+        const tx = clamp(this.px + dirX * range, FIELD.x + 8, FIELD.x + FIELD.w - 8);
+        const ty = clamp(this.py + dirY * range, FIELD.y + 8, FIELD.y + FIELD.h - 8);
+        this.drawBlinkIndicator(ctx, tx, ty);
+        break;
+      }
+      case "self_aoe": {
+        this.drawSelfAoeIndicator(ctx, radius, color);
+        break;
+      }
+      case "self_buff": {
+        this.drawDirArrow(ctx, dirX, dirY, 25, color);
+        break;
+      }
+    }
+
+    ctx.restore();
+  }
+
+  private drawDirIndicator(ctx: CanvasRenderingContext2D, tx: number, ty: number, color: string, width: number) {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
+    // Dashed line from player to target
+    ctx.globalAlpha = 0.4 + pulse * 0.2;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(this.px, this.py);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Target crosshair
+    ctx.globalAlpha = 0.6 + pulse * 0.3;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(tx, ty, width, 0, Math.PI * 2);
+    ctx.stroke();
+    // Cross
+    ctx.beginPath();
+    ctx.moveTo(tx - width * 0.5, ty);
+    ctx.lineTo(tx + width * 0.5, ty);
+    ctx.moveTo(tx, ty - width * 0.5);
+    ctx.lineTo(tx, ty + width * 0.5);
+    ctx.stroke();
+  }
+
+  private drawAoeCircleIndicator(ctx: CanvasRenderingContext2D, tx: number, ty: number, radius: number, color: string) {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.005);
+    // Dashed line from player to center
+    ctx.globalAlpha = 0.3;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(this.px, this.py);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // AOE circle fill
+    ctx.globalAlpha = 0.08 + pulse * 0.06;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(tx, ty, radius, 0, Math.PI * 2);
+    ctx.fill();
+    // AOE circle stroke
+    ctx.globalAlpha = 0.5 + pulse * 0.3;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(tx, ty, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    // Inner crosshair
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(tx - 6, ty);
+    ctx.lineTo(tx + 6, ty);
+    ctx.moveTo(tx, ty - 6);
+    ctx.lineTo(tx, ty + 6);
+    ctx.stroke();
+  }
+
+  private drawBlinkIndicator(ctx: CanvasRenderingContext2D, tx: number, ty: number) {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008);
+    // Dashed trail from player to destination
+    ctx.globalAlpha = 0.3 + pulse * 0.15;
+    ctx.strokeStyle = "#b388ff";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath();
+    ctx.moveTo(this.px, this.py);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Destination ghost circle (player silhouette)
+    ctx.globalAlpha = 0.3 + pulse * 0.2;
+    ctx.strokeStyle = "#b388ff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 8, 0, Math.PI * 2);
+    ctx.stroke();
+    // Outer ring pulsing
+    ctx.globalAlpha = 0.2 + pulse * 0.15;
+    ctx.beginPath();
+    ctx.arc(tx, ty, 14, 0, Math.PI * 2);
+    ctx.stroke();
+    // Fill dot at destination
+    ctx.globalAlpha = 0.5 + pulse * 0.3;
+    ctx.fillStyle = "#b388ff";
+    ctx.beginPath();
+    ctx.arc(tx, ty, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  private drawSelfAoeIndicator(ctx: CanvasRenderingContext2D, radius: number, color: string) {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.005);
+    // Circle around player
+    ctx.globalAlpha = 0.06 + pulse * 0.04;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(this.px, this.py, radius, 0, Math.PI * 2);
+    ctx.fill();
+    // Stroke
+    ctx.globalAlpha = 0.4 + pulse * 0.3;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.arc(this.px, this.py, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  private drawDirArrow(ctx: CanvasRenderingContext2D, dirX: number, dirY: number, length: number, color: string) {
+    const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.006);
+    const tipX = this.px + dirX * length;
+    const tipY = this.py + dirY * length;
+    ctx.globalAlpha = 0.6 + pulse * 0.3;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(this.px + dirX * 10, this.py + dirY * 10);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+    // Arrowhead
+    const ang = Math.atan2(dirY, dirX);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - Math.cos(ang - 0.5) * 6, tipY - Math.sin(ang - 0.5) * 6);
+    ctx.lineTo(tipX - Math.cos(ang + 0.5) * 6, tipY - Math.sin(ang + 0.5) * 6);
+    ctx.closePath();
+    ctx.fill();
   }
 
   private drawAttackFx() {

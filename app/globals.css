@@ -123,14 +123,16 @@ button {
 }
 
 .gold-badge {
-  background: var(--panel);
+  background: rgba(26, 22, 34, 0.85);
   border: 2px solid var(--border);
-  padding: 12px 16px;
-  font-size: 12px;
+  padding: 6px 10px;
+  font-size: 11px;
   color: var(--gold);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
 }
 
 .section-label {
@@ -401,24 +403,22 @@ button {
 
 /* ---------- Raid ---------- */
 .raid-wrap {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 12px;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .game-frame {
-  position: relative;
-  width: 960px;
-  height: 540px;
-  border: 4px solid var(--border);
+  position: absolute;
+  inset: 0;
   background: #000;
-  box-shadow: 0 0 0 2px #000, 0 8px 40px rgba(0, 0, 0, 0.6);
   image-rendering: pixelated;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .game-canvas {
   display: block;
@@ -729,11 +729,20 @@ button {
 }
 
 .controls-hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 7px;
   color: var(--muted);
   text-align: center;
   line-height: 2;
   max-width: 480px;
+  z-index: 15;
+  pointer-events: none;
+  background: rgba(10, 8, 16, 0.6);
+  padding: 4px 10px;
+  border-radius: 3px;
 }
 
 .lvlup {
@@ -1018,44 +1027,43 @@ button {
 
 /* ---------- Town ---------- */
 .town-page {
-  min-height: 100vh;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
   height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 14px;
-  box-sizing: border-box;
   overflow: hidden;
 }
 .town-topbar {
-  width: 100%;
-  max-width: 960px;
+  position: absolute;
+  top: 12px;
+  left: 12px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
+  z-index: 15;
+  pointer-events: auto;
 }
 .town-title {
-  font-size: 16px;
-  color: var(--gold);
-  text-shadow: 2px 2px 0 #6a4a00;
+  display: none;
 }
 .town-nav {
-  width: 100%;
-  max-width: 960px;
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 15;
+  pointer-events: auto;
 }
 .town-nav-btn {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
-  background: var(--panel);
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: rgba(26, 22, 34, 0.85);
   border: 2px solid var(--border);
   color: var(--muted);
   font-family: inherit;
@@ -1065,29 +1073,49 @@ button {
   letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.15s;
+  border-radius: 6px;
+  backdrop-filter: blur(4px);
+  position: relative;
 }
 .town-nav-btn:hover {
   color: var(--text);
   border-color: var(--gold);
-  background: rgba(192, 200, 216, 0.08);
+  background: rgba(26, 22, 34, 0.95);
+  transform: scale(1.1);
 }
 .town-nav-btn.active {
   color: var(--gold);
   border-color: var(--gold);
-  background: rgba(192, 200, 216, 0.12);
+  background: rgba(26, 22, 34, 0.95);
+  box-shadow: 0 0 8px rgba(255, 210, 74, 0.3);
+}
+.town-nav-btn .nav-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+.town-nav-btn .nav-label {
+  display: none;
+}
+.town-nav-btn .nav-tooltip {
+  display: none;
+  position: absolute;
+  left: 52px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(10, 8, 16, 0.95);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  font-size: 8px;
+  color: var(--text);
+  white-space: nowrap;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.town-nav-btn:hover .nav-tooltip {
+  display: block;
 }
 .nav-hotkey {
-  display: inline-block;
-  padding: 1px 5px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 7px;
-  color: var(--muted);
-  border-radius: 2px;
-}
-.town-nav-btn.active .nav-hotkey {
-  color: var(--gold);
-  border-color: rgba(192, 200, 216, 0.2);
+  display: none;
 }
 .market-placeholder {
   display: flex;
@@ -1148,11 +1176,13 @@ button {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--panel);
+  background: rgba(26, 22, 34, 0.85);
   border: 2px solid var(--border);
   padding: 6px 10px;
   font-size: 8px;
   color: var(--text);
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
 }
 .hero-chip canvas {
   width: 20px;
@@ -1162,14 +1192,11 @@ button {
   background: transparent;
 }
 .town-frame {
-  position: relative;
-  border: 4px solid var(--border);
+  position: absolute;
+  inset: 0;
   background: #000;
-  box-shadow: 0 0 0 2px #000, 0 8px 40px rgba(0, 0, 0, 0.6);
   image-rendering: pixelated;
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
+  overflow: hidden;
 }
 .town-frame canvas {
   display: block;
@@ -1177,17 +1204,24 @@ button {
 }
 .town-bgm {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 10;
+  top: 12px;
+  right: 12px;
+  z-index: 15;
   pointer-events: auto;
 }
 .town-hint {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
   font-size: 7px;
   color: var(--muted);
-  text-align: center;
+  text-align: right;
   line-height: 2;
-  max-width: 700px;
+  z-index: 15;
+  pointer-events: none;
+  background: rgba(10, 8, 16, 0.6);
+  padding: 4px 8px;
+  border-radius: 3px;
 }
 .town-hint .near {
   color: var(--gold);
@@ -1225,26 +1259,23 @@ button {
 
 /* modal overlay over the town frame */
 .modal-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(8, 6, 12, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 12px;
-  z-index: 10;
+  z-index: 50;
 }
 .modal {
   width: 100%;
   max-width: 900px;
-  max-height: 92%;
+  max-height: 88vh;
   background: var(--bg);
   border: 3px solid var(--border);
   display: flex;
   flex-direction: column;
-  position: fixed;
-  inset: 4% 4% auto 4%;
-  margin: 0 auto;
 }
 .modal-head {
   display: flex;
@@ -1329,12 +1360,45 @@ button {
   align-items: center;
   justify-content: center;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   touch-action: none;
 }
 .skill-btn.ready {
   border-color: var(--gold);
   background: rgba(255,210,74,0.15);
+}
+.skill-btn.aiming {
+  border-color: #5fff8f;
+  background: rgba(95,255,143,0.25);
+  box-shadow: 0 0 12px rgba(95,255,143,0.5);
+  overflow: visible;
+}
+.skill-aim-indicator {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.skill-aim-arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: rgba(95,255,143,0.8);
+  border: 2px solid #fff;
+  box-shadow: 0 0 6px rgba(95,255,143,0.6);
+  transition: transform 0.03s;
+}
+.skill-aim-line {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  height: 2px;
+  background: linear-gradient(to right, rgba(95,255,143,0.8), rgba(95,255,143,0.2));
+  transform-origin: 0 50%;
+  pointer-events: none;
 }
 .skill-btn-key {
   font-size: 14px;
@@ -1408,8 +1472,30 @@ button {
 }
 
 @media (hover: none) and (pointer: coarse) {
-  .raid-wrap { padding: 0; }
-  .game-frame { width: 100vw; height: 100vh; border: none; box-shadow: none; }
+  .controls-hint { display: none; }
+  .town-nav {
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: auto;
+    flex-direction: row;
+    gap: 8px;
+  }
+  .town-nav-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .town-nav-btn .nav-tooltip {
+    display: none;
+  }
+  .town-topbar {
+    top: auto;
+    bottom: 70px;
+    left: 12px;
+  }
+  .town-hint {
+    display: none;
+  }
 }
 
 

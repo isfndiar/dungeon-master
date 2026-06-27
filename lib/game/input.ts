@@ -13,6 +13,12 @@ export class Input {
   virtualAimX = 0;
   virtualAimY = 0;
   virtualAimActive = false;
+  // per-skill aim (MLBB-style drag to aim, release to cast)
+  virtualSkillAim: { active: boolean; aimX: number; aimY: number; cast: boolean; cancelled: boolean }[] = [
+    { active: false, aimX: 0, aimY: 0, cast: false, cancelled: false },
+    { active: false, aimX: 0, aimY: 0, cast: false, cancelled: false },
+    { active: false, aimX: 0, aimY: 0, cast: false, cancelled: false },
+  ];
   private el: HTMLElement;
   private scale = 1;
   private offsetX = 0;
@@ -82,7 +88,22 @@ export class Input {
       this.virtualSkills[index] = false;
       return true;
     }
+    // MLBB-style: skill was aimed and released (cast)
+    if (this.virtualSkillAim[index]?.cast) {
+      this.virtualSkillAim[index].cast = false;
+      return true;
+    }
     return false;
+  }
+
+  consumeSkillAim(index: number): { aimX: number; aimY: number } | null {
+    const sa = this.virtualSkillAim[index];
+    if (!sa) return null;
+    const len = Math.hypot(sa.aimX, sa.aimY);
+    if (len > 0.1) {
+      return { aimX: sa.aimX / len, aimY: sa.aimY / len };
+    }
+    return null;
   }
 
   destroy() {

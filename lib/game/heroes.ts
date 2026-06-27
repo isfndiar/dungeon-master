@@ -12,6 +12,13 @@ export type SkillKind =
   | "groundslam" | "berserk"   // tank
   | "rapidfire" | "snipe";     // archer
 
+export type SkillTargetType =
+  | "directional"   // line/dash skill aimed in a direction
+  | "aoe_target"    // circle placed at aim position (distance from player)
+  | "blink"         // teleport to aimed position
+  | "self_aoe"      // circle centered on player
+  | "self_buff";    // no targeting, buff/shield on self
+
 export type SkillKey = "1" | "2" | "3";
 
 export interface SkillDef {
@@ -20,6 +27,10 @@ export interface SkillDef {
   desc: string;
   cooldown: number; // seconds
   kind: SkillKind;
+  target: SkillTargetType;
+  range?: number;    // directional/blink/aoe_target: max distance from player (px)
+  radius?: number;   // aoe_target/self_aoe: effect radius (px)
+  color?: string;    // indicator tint color
 }
 
 export interface HeroDef {
@@ -50,9 +61,9 @@ export const HEROES: Record<HeroId, HeroDef> = {
     attackRange: 26,
     color: "#c0c8d8",
     skills: [
-      { key: "1", name: "Charge",     desc: "Dash forward, damaging all in your path.", cooldown: 5, kind: "charge" },
-      { key: "2", name: "Sword Storm", desc: "Summon 5 flying swords that home on foes.", cooldown: 6, kind: "swordstorm" },
-      { key: "3", name: "War Cry",     desc: "+damage & boost lifesteal for a few seconds.", cooldown: 14, kind: "warcry" },
+      { key: "1", name: "Charge",     desc: "Dash forward, damaging all in your path.", cooldown: 5, kind: "charge", target: "directional", range: 70, color: "#c0c8d8" },
+      { key: "2", name: "Sword Storm", desc: "Summon 5 flying swords that home on foes.", cooldown: 6, kind: "swordstorm", target: "self_buff", color: "#c0c8d8" },
+      { key: "3", name: "War Cry",     desc: "+damage & boost lifesteal for a few seconds.", cooldown: 14, kind: "warcry", target: "self_aoe", radius: 40, color: "#ffd24a" },
     ],
   },
   mage: {
@@ -68,9 +79,9 @@ export const HEROES: Record<HeroId, HeroDef> = {
     attackRange: 14,
     color: "#3a4fb0",
     skills: [
-      { key: "1", name: "Frost Nova", desc: "Freeze & damage nearby foes.",      cooldown: 7, kind: "frostnova" },
-      { key: "2", name: "Meteor",     desc: "Big AoE blast at your aim point.",  cooldown: 8, kind: "meteor" },
-      { key: "3", name: "Blink",      desc: "Teleport toward your cursor.",      cooldown: 3, kind: "blink" },
+      { key: "1", name: "Frost Nova", desc: "Freeze & damage nearby foes.",      cooldown: 7, kind: "frostnova", target: "self_aoe", radius: 120, color: "#7ad7ff" },
+      { key: "2", name: "Meteor",     desc: "Big AoE blast at your aim point.",  cooldown: 8, kind: "meteor", target: "aoe_target", range: 90, radius: 70, color: "#ff6a1a" },
+      { key: "3", name: "Blink",      desc: "Teleport toward your cursor.",      cooldown: 3, kind: "blink", target: "blink", range: 90, color: "#b388ff" },
     ],
   },
   priest: {
@@ -85,9 +96,9 @@ export const HEROES: Record<HeroId, HeroDef> = {
     attackRange: 24,
     color: "#f2f2f2",
     skills: [
-      { key: "1", name: "Smite",      desc: "Holy bolt that pierces enemies.",   cooldown: 4, kind: "smite" },
-      { key: "2", name: "Divine Heal",desc: "Restore a chunk of HP.",            cooldown: 9, kind: "heal" },
-      { key: "3", name: "Sanctuary",  desc: "Healing zone + brief invulnerability.", cooldown: 16, kind: "sanctuary" },
+      { key: "1", name: "Smite",      desc: "Holy bolt that pierces enemies.",   cooldown: 4, kind: "smite", target: "directional", range: 80, color: "#ffd24a" },
+      { key: "2", name: "Divine Heal",desc: "Restore a chunk of HP.",            cooldown: 9, kind: "heal", target: "self_aoe", radius: 80, color: "#5fff8f" },
+      { key: "3", name: "Sanctuary",  desc: "Healing zone + brief invulnerability.", cooldown: 16, kind: "sanctuary", target: "self_aoe", radius: 46, color: "#ffd24a" },
     ],
   },
   tank: {
@@ -102,9 +113,9 @@ export const HEROES: Record<HeroId, HeroDef> = {
     attackRange: 28,
     color: "#8a8f99",
     skills: [
-      { key: "1", name: "Ground Slam", desc: "Knockback shockwave around you.",      cooldown: 6, kind: "groundslam" },
-      { key: "2", name: "Bulwark",     desc: "Temp shield + pull aggro.",            cooldown: 6, kind: "taunt" },
-      { key: "3", name: "Berserk",     desc: "Rage: big damage & speed boost.",      cooldown: 7, kind: "berserk" },
+      { key: "1", name: "Ground Slam", desc: "Knockback shockwave around you.",      cooldown: 6, kind: "groundslam", target: "self_aoe", radius: 80, color: "#8a8f99" },
+      { key: "2", name: "Bulwark",     desc: "Temp shield + pull aggro.",            cooldown: 6, kind: "taunt", target: "self_buff", color: "#9aa3b5" },
+      { key: "3", name: "Berserk",     desc: "Rage: big damage & speed boost.",      cooldown: 7, kind: "berserk", target: "self_aoe", radius: 100, color: "#ff3a1a" },
     ],
   },
   archer: {
@@ -120,9 +131,9 @@ export const HEROES: Record<HeroId, HeroDef> = {
     attackRange: 14,
     color: "#3f8f5a",
     skills: [
-      { key: "1", name: "Multishot", desc: "Fire a fan of 5 arrows.",           cooldown: 5, kind: "multishot" },
-      { key: "2", name: "Rapid Fire",desc: "Greatly boost fire rate briefly.",  cooldown: 10, kind: "rapidfire" },
-      { key: "3", name: "Snipe",     desc: "Charged shot for huge damage.",      cooldown: 8, kind: "snipe" },
+      { key: "1", name: "Multishot", desc: "Fire a fan of 5 arrows.",           cooldown: 5, kind: "multishot", target: "directional", range: 80, color: "#ffd24a" },
+      { key: "2", name: "Rapid Fire",desc: "Greatly boost fire rate briefly.",  cooldown: 10, kind: "rapidfire", target: "self_buff", color: "#3f8f5a" },
+      { key: "3", name: "Snipe",     desc: "Charged shot for huge damage.",      cooldown: 8, kind: "snipe", target: "directional", range: 200, color: "#ff5a5a" },
     ],
   },
 };
