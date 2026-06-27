@@ -1361,6 +1361,4 @@ button {
   background: rgba(255,80,80,0.5);
 }
 
-@media (min-width: 769px) {
-  .mobile-controls { display: none; }
-}
+

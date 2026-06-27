@@ -393,7 +393,7 @@ function RaidInner() {
         )}
       </div>
 
-      {isMobile && !needFocus && !result && hud && engineRef.current && (
+      {!needFocus && !result && hud && engineRef.current && (
         <div className="mobile-controls">
           <Joystick input={engineRef.current.input} />
           <ActionButtons input={engineRef.current.input} skills={hud.skills} />
