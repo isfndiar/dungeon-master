@@ -125,7 +125,7 @@ function RaidInner() {
       const t = e.touches[0];
       if (!t) return;
       const rect = canvas.getBoundingClientRect();
-      const s = engine.input.scale || 1;
+      const s = engine.input.getScale() || 1;
       engine.input.mouseX = (t.clientX - rect.left) / s;
       engine.input.mouseY = (t.clientY - rect.top) / s;
     };

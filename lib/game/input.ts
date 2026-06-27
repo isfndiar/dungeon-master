@@ -49,6 +49,10 @@ export class Input {
     window.addEventListener("mouseup", this.onMouseUp);
   }
 
+  getScale(): number {
+    return this.scale;
+  }
+
   setScale(scale: number) {
     this.scale = scale;
   }
