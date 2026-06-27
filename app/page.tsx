@@ -8,6 +8,7 @@ import {
 import { DUNGEONS, DUNGEON_IDS, DungeonId, MODE_LIST, MODE_DEF, GameMode, isValidMode } from "@/lib/game/dungeons";
 import { heroSprites, drawSprite } from "@/lib/game/sprites";
 import { TownEngine, NpcDef, TownAction } from "@/lib/game/town";
+import { preloadAssets } from "@/lib/game/preload";
 import {
   loadSave, resetSave, writeSave, SaveData,
   heroBonusStats, equippedItems, equipItem, unequip, discardItem,
@@ -57,6 +58,8 @@ function HeroPreview({ id, size = 64 }: { id: HeroId; size?: number }) {
 export default function Town() {
   const router = useRouter();
   const [save, setSave] = useState<SaveData | null>(null);
+  const [loadPct, setLoadPct] = useState(0);
+  const [loaded, setLoaded] = useState(false);
   const [panel, setPanel] = useState<Panel>("none");
   const [dialog, setDialog] = useState<{ name: string; lines: string[]; idx: number } | null>(null);
   const [nearbyName, setNearbyName] = useState<string | null>(null);
@@ -84,6 +87,16 @@ export default function Town() {
     setSave(loadSave());
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    preloadAssets((pct) => {
+      if (!cancelled) setLoadPct(pct);
+    }).then(() => {
+      if (!cancelled) setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   const handleInteract = useCallback((npc: NpcDef) => {
     const action: TownAction = npc.action;
     if (action === "dungeon") setPanel("dungeon");
@@ -96,7 +109,7 @@ export default function Town() {
   }, [save, router]);
 
   // mount town engine once save is ready
-  const ready = save !== null;
+  const ready = save !== null && loaded;
   useEffect(() => {
     if (!ready) return;
     const canvas = canvasRef.current;
@@ -145,7 +158,19 @@ export default function Town() {
     return () => window.removeEventListener("keydown", onKey);
   }, [dialog, panel]);
 
-  if (!save) return null;
+  if (!save || !loaded) {
+    return (
+      <main className="loading-screen">
+        <div className="loading-content">
+          <div className="loading-title">DUNGEON HUNTER</div>
+          <div className="loading-bar-track">
+            <div className="loading-bar-fill" style={{ width: loadPct + "%" }} />
+          </div>
+          <div className="loading-text">Loading assets... {loadPct}%</div>
+        </div>
+      </main>
+    );
+  }
 
   const hero = save.selectedHero;
   const closePanel = () => { setPanel("none"); setDialog(null); };
