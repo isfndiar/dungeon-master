@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Engine, HudState, RaidResult, MiniMap, VIEW_W, VIEW_H } from "@/lib/game/engine";
 import { HEROES, HeroId, HERO_IDS, xpToNext } from "@/lib/game/heroes";
@@ -8,8 +8,9 @@ import { DUNGEONS, DungeonId, DUNGEON_IDS, MODE_DEF, GameMode, isValidMode } fro
 import { loadSave, writeSave, heroBonusStats } from "@/lib/save";
 import { Item, itemStatLines, formatStat, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL } from "@/lib/game/items";
 import { ItemIcon } from "../ItemIcon";
+import { Joystick } from "../Joystick";
+import { ActionButtons } from "../ActionButtons";
 
-const SCALE = 2;
 const BGM_SRC = "/music/Vestibulum_Mortis.mp3";
 const BGM_KEY = "dungeon-hunter-bgm-enabled";
 
@@ -63,6 +64,7 @@ function RaidInner() {
   const [result, setResult] = useState<RaidResult | null>(null);
   const [levelUps, setLevelUps] = useState<{ name: string; level: number }[]>([]);
   const [needFocus, setNeedFocus] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
   const [bgmEnabled, setBgmEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
     return localStorage.getItem(BGM_KEY) !== "off";
@@ -71,6 +73,10 @@ function RaidInner() {
   const valid =
     heroParam && HERO_IDS.includes(heroParam) &&
     dungeonParam && DUNGEON_IDS.includes(dungeonParam);
+
+  useEffect(() => {
+    setIsMobile("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  }, []);
 
   useEffect(() => {
     if (!valid) {
@@ -88,7 +94,20 @@ function RaidInner() {
       onHud: (h) => setHud(h),
       onEnd: (res) => finishRaid(res),
     }, bonus, modeParam, save.quickSlots);
-    engine.setScale(SCALE);
+
+    const updateScale = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const scaleX = vw / VIEW_W;
+      const scaleY = vh / VIEW_H;
+      const s = Math.min(scaleX, scaleY);
+      engine.setScale(s);
+      canvas.style.width = Math.floor(VIEW_W * s) + "px";
+      canvas.style.height = Math.floor(VIEW_H * s) + "px";
+    };
+    updateScale();
+    window.addEventListener("resize", updateScale);
+
     engineRef.current = engine;
     engine.start();
 
@@ -96,6 +115,18 @@ function RaidInner() {
       if (document.hidden) engine.setPaused(true);
     };
     document.addEventListener("visibilitychange", onVis);
+
+    // touch aim: set mouseX/mouseY from touch position on canvas
+    const onTouchAim = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      const rect = canvas.getBoundingClientRect();
+      const s = engine.input.scale || 1;
+      engine.input.mouseX = (t.clientX - rect.left) / s;
+      engine.input.mouseY = (t.clientY - rect.top) / s;
+    };
+    canvas.addEventListener("touchstart", onTouchAim, { passive: true });
+    canvas.addEventListener("touchmove", onTouchAim, { passive: true });
 
     // BGM
     const audio = new Audio(BGM_SRC);
@@ -108,6 +139,9 @@ function RaidInner() {
 
     return () => {
       document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("resize", updateScale);
+      canvas.removeEventListener("touchstart", onTouchAim);
+      canvas.removeEventListener("touchmove", onTouchAim);
       audio.pause();
       audio.src = "";
       engine.destroy();
@@ -167,15 +201,15 @@ function RaidInner() {
     <div className="raid-wrap">
       <div
         className="game-frame"
-        style={{ width: VIEW_W * SCALE, height: VIEW_H * SCALE }}
+        style={{ width: "100vw", height: "100vh" }}
       >
         <canvas
           ref={canvasRef}
           className="game-canvas"
-          width={VIEW_W * SCALE}
-          height={VIEW_H * SCALE}
+          width={VIEW_W * 2}
+          height={VIEW_H * 2}
           tabIndex={0}
-          style={{ width: VIEW_W * SCALE, height: VIEW_H * SCALE }}
+          style={{ display: "block", imageRendering: "pixelated" }}
         />
 
         {hud && !result && (
@@ -298,9 +332,11 @@ function RaidInner() {
 
         {needFocus && !result && (
           <div className="click-overlay" onClick={focusGame}>
-            CLICK TO START<br />
+            {isMobile ? "TAP TO START" : "CLICK TO START"}<br />
             <span style={{ fontSize: 7, color: "var(--muted)" }}>
-              WASD move • mouse aim • click/space attack • 1/2/3 skills
+              {isMobile
+                ? "Joystick to move • tap canvas to aim • ATK button to attack"
+                : "WASD move • mouse aim • click/space attack • 1/2/3 skills"}
             </span>
           </div>
         )}
@@ -357,10 +393,19 @@ function RaidInner() {
         )}
       </div>
 
+      {isMobile && !needFocus && !result && hud && engineRef.current && (
+        <div className="mobile-controls">
+          <Joystick input={engineRef.current.input} />
+          <ActionButtons input={engineRef.current.input} skills={hud.skills} />
+        </div>
+      )}
+
       <div className="controls-hint">
-        {dungeon.endless
-          ? "WASD move, mouse aim, click/space attack, 1-3 skills. Survive endless waves!"
-          : `${dungeon.name} — reach the glowing gate after each room. Defeat the boss to win.`}
+        {isMobile
+          ? `${dungeon.name} — tap to start, use joystick to move`
+          : dungeon.endless
+            ? "WASD move, mouse aim, click/space attack, 1-3 skills. Survive endless waves!"
+            : `${dungeon.name} — reach the glowing gate after each room. Defeat the boss to win.`}
       </div>
     </div>
   );

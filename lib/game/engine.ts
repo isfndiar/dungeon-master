@@ -218,7 +218,7 @@ export interface HudState {
 
 export class Engine {
   private ctx: CanvasRenderingContext2D;
-  private input: Input;
+  readonly input: Input;
   private raf = 0;
   private last = 0;
   private running = false;
@@ -829,11 +829,8 @@ export class Engine {
   }
 
   private updatePlayer(dt: number) {
-    let mx = 0, my = 0;
-    if (this.input.pressed("a", "arrowleft")) mx -= 1;
-    if (this.input.pressed("d", "arrowright")) mx += 1;
-    if (this.input.pressed("w", "arrowup")) my -= 1;
-    if (this.input.pressed("s", "arrowdown")) my += 1;
+    const dir = this.input.getMoveDir();
+    let mx = dir.x, my = dir.y;
     const len = Math.hypot(mx, my);
     // debuff: snare = full root, slow = reduced multiplier
     let debuffMult = 1;
@@ -911,14 +908,14 @@ export class Engine {
     // basic attack (rapid fire + CDR shorten cooldown)
     const cdrMult = 1 - this.bonusCdr;
     const atkCd = this.hero.attackCooldown * (this.rapidFire > 0 ? 0.35 : 1) * cdrMult;
-    if ((this.input.mouseDown || this.input.pressed(" ")) && this.atkTimer <= 0 && this.phase === "playing") {
+    if (this.input.isAttackDown() && this.atkTimer <= 0 && this.phase === "playing") {
       this.doBasicAttack();
       this.atkTimer = atkCd;
     }
     // skills on 1 / 2 / 3
     const keys: ("1" | "2" | "3")[] = ["1", "2", "3"];
     for (let i = 0; i < 3; i++) {
-      if (this.input.pressed(keys[i]) && this.skillTimers[i] <= 0 && this.phase === "playing") {
+      if ((this.input.pressed(keys[i]) || this.input.consumeSkill(i)) && this.skillTimers[i] <= 0 && this.phase === "playing") {
         this.doSkill(this.hero.skills[i].kind);
         this.skillTimers[i] = this.hero.skills[i].cooldown * cdrMult;
       }
