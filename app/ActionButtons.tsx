@@ -9,21 +9,65 @@ interface ActionButtonsProps {
   skills: SkillHud[];
 }
 
+const AIM_RADIUS = 40;
+
 export function ActionButtons({ input, skills }: ActionButtonsProps) {
   const atkRef = useRef<HTMLDivElement>(null);
+  const atkThumbRef = useRef<HTMLDivElement>(null);
+  const atkOriginRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     const el = atkRef.current;
     if (!el) return;
-    const onStart = (e: TouchEvent) => { e.preventDefault(); input.virtualAttack = true; };
-    const onEnd = () => { input.virtualAttack = false; };
+
+    const onStart = (e: TouchEvent) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      atkOriginRef.current = { x: t.clientX, y: t.clientY };
+      input.virtualAimActive = true;
+      input.virtualAimX = 0;
+      input.virtualAimY = 0;
+      input.virtualAttack = true;
+    };
+
+    const onMove = (e: TouchEvent) => {
+      if (!input.virtualAimActive) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      let dx = t.clientX - atkOriginRef.current.x;
+      let dy = t.clientY - atkOriginRef.current.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > AIM_RADIUS) {
+        dx = (dx / dist) * AIM_RADIUS;
+        dy = (dy / dist) * AIM_RADIUS;
+      }
+      input.virtualAimX = dx / AIM_RADIUS;
+      input.virtualAimY = dy / AIM_RADIUS;
+      if (atkThumbRef.current) {
+        atkThumbRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
+      }
+    };
+
+    const onEnd = () => {
+      input.virtualAimActive = false;
+      input.virtualAttack = false;
+      input.virtualAimX = 0;
+      input.virtualAimY = 0;
+      if (atkThumbRef.current) {
+        atkThumbRef.current.style.transform = "translate(0,0)";
+      }
+    };
+
     el.addEventListener("touchstart", onStart, { passive: false });
-    el.addEventListener("touchend", onEnd);
-    el.addEventListener("touchcancel", onEnd);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+    window.addEventListener("touchcancel", onEnd);
+
     return () => {
       el.removeEventListener("touchstart", onStart);
-      el.removeEventListener("touchend", onEnd);
-      el.removeEventListener("touchcancel", onEnd);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+      window.removeEventListener("touchcancel", onEnd);
     };
   }, [input]);
 
@@ -45,8 +89,9 @@ export function ActionButtons({ input, skills }: ActionButtonsProps) {
           </div>
         ))}
       </div>
-      <div className="atk-btn" ref={atkRef}>
-        ATK
+      <div className="atk-joystick" ref={atkRef}>
+        <div className="atk-joystick-thumb" ref={atkThumbRef} />
+        <span className="atk-joystick-label">ATK</span>
       </div>
     </div>
   );
