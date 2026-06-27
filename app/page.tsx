@@ -15,6 +15,7 @@ import {
 import {
   Item, EquipSlot, EQUIP_SLOTS, SLOT_LABEL, RARITY_COLOR, RARITY_LABEL,
   itemStatLines, formatStat, itemPower,
+  CONSUMABLE_DEFS, rollConsumableFromDef, formatEffect, getConsumableSellPrice, isConsumable,
 } from "@/lib/game/items";
 import { ItemIcon } from "./ItemIcon";
 
@@ -59,7 +60,7 @@ export default function Town() {
   const [panel, setPanel] = useState<Panel>("none");
   const [dialog, setDialog] = useState<{ name: string; lines: string[]; idx: number } | null>(null);
   const [nearbyName, setNearbyName] = useState<string | null>(null);
-  const [invFilter, setInvFilter] = useState<EquipSlot | "all">("all");
+  const [invFilter, setInvFilter] = useState<EquipSlot | "all" | "consumable">("all");
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<TownEngine | null>(null);
@@ -90,6 +91,7 @@ export default function Town() {
     else if (action === "village2") setDialog({ name: npc.name, lines: ["Coming soon... The next village is under construction."], idx: 0 });
     else if (action === "equipment") setPanel("equipment");
     else if (action === "heroes") setPanel("heroes");
+    else if (action === "shop") setPanel("market");
     else setDialog({ name: npc.name, lines: npc.lines, idx: 0 });
   }, [save, router]);
 
@@ -234,12 +236,8 @@ export default function Town() {
           </Modal>
         )}
         {panel === "market" && (
-          <Modal title="Market" onClose={closePanel}>
-            <div className="market-placeholder">
-              <div className="market-icon">🏪</div>
-              <div className="market-text">Coming Soon</div>
-              <div className="market-sub">The market is under construction.</div>
-            </div>
+          <Modal title="Merchant Pell's Shop" onClose={closePanel}>
+            <ShopPanel save={save} commit={commit} />
           </Modal>
         )}
       </div>
@@ -398,8 +396,8 @@ function EquipmentPanel({
 }: {
   save: SaveData;
   hero: HeroId;
-  invFilter: EquipSlot | "all";
-  setInvFilter: (f: EquipSlot | "all") => void;
+  invFilter: EquipSlot | "all" | "consumable";
+  setInvFilter: (f: EquipSlot | "all" | "consumable") => void;
   commit: (mutate: (s: SaveData) => void) => void;
 }) {
   const equipped = equippedItems(save, hero);
@@ -417,7 +415,8 @@ function EquipmentPanel({
   let list = save.inventory
     .filter((it) => !equippedIds.has(it.id))
     .filter(usable);
-  if (invFilter !== "all") list = list.filter((it) => it.slot === invFilter);
+  if (invFilter === "consumable") list = list.filter((it) => it.slot === "consumable");
+  else if (invFilter !== "all") list = list.filter((it) => it.slot === invFilter);
   list = list.slice().sort((a, b) => itemPower(b) - itemPower(a));
 
   const totalHp = hpForLevel(def, prog.level) + bonus.hp;
@@ -435,7 +434,7 @@ function EquipmentPanel({
                 {it ? (
                   <div className="slot-item" style={{ borderColor: RARITY_COLOR[it.rarity] }}>
                     <div className="slot-item-main">
-                      <ItemIcon slot={it.slot} rarity={it.rarity} size={30} />
+                      <ItemIcon slot={it.slot} rarity={it.rarity} size={30} consumableType={it.consumableType} />
                       <div className="slot-item-body">
                         <div className="slot-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
                           {it.name}
@@ -469,6 +468,31 @@ function EquipmentPanel({
           <div className="tot"><span>CDR</span><b>{Math.round(bonus.cdr * 100)}%</b></div>
           <div className="tot"><span>CRIT</span><b>{Math.round(bonus.crit * 100)}%</b></div>
         </div>
+
+        <div className="quickslot-section">
+          <div className="quickslot-title">Quick Slots (4-7)</div>
+          <div className="quickslot-row">
+            {[0,1,2,3].map(i => {
+              const qs = save.quickSlots[i];
+              return (
+                <div key={i} className="quickslot-box" title={qs ? qs.name : "Empty — assign from inventory"}>
+                  {qs ? (
+                    <>
+                      <ItemIcon slot="consumable" rarity={qs.rarity} consumableType={qs.consumableType} size={20} />
+                      <span className="quickslot-name">{qs.name.replace(" Potion","").replace(" Scroll","")}</span>
+                    </>
+                  ) : (
+                    <span className="quickslot-empty">—</span>
+                  )}
+                  <span className="quickslot-key">{i + 4}</span>
+                  {qs && (
+                    <button className="quickslot-remove" onClick={() => commit(s => { s.quickSlots[i] = null; })}>✕</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="equip-right">
@@ -482,6 +506,12 @@ function EquipmentPanel({
               {f === "all" ? "All" : SLOT_LABEL[f]}
             </button>
           ))}
+          <button
+            className={"inv-filter" + (invFilter === "consumable" ? " on" : "")}
+            onClick={() => setInvFilter("consumable")}
+          >
+            Potion
+          </button>
         </div>
 
         {list.length === 0 ? (
@@ -490,43 +520,138 @@ function EquipmentPanel({
           <div className="inv-list">
             {list.map((it) => {
               const lockedWeapon = it.slot === "weapon" && it.hero !== "any" && it.hero !== hero;
+              const consum = isConsumable(it);
               return (
                 <div className="inv-item" key={it.id} style={{ borderColor: RARITY_COLOR[it.rarity] }}>
                   <div className="inv-item-top">
-                    <ItemIcon slot={it.slot} rarity={it.rarity} size={32} />
+                    <ItemIcon slot={it.slot} rarity={it.rarity} size={32} consumableType={it.consumableType} />
                     <div className="inv-item-info">
                       <div className="inv-item-head">
                         <span className="inv-item-name" style={{ color: RARITY_COLOR[it.rarity] }}>
                           {it.name}
+                          {consum && (it.stackCount ?? 1) > 1 && <span className="stack-badge"> ×{it.stackCount}</span>}
                         </span>
                         <span className="inv-item-tag">
-                          {RARITY_LABEL[it.rarity]} · {SLOT_LABEL[it.slot]}
+                          {RARITY_LABEL[it.rarity]} · {consum ? (it.consumableType === "scroll" ? "Scroll" : "Potion") : SLOT_LABEL[it.slot]}
                         </span>
                       </div>
-                      <div className="inv-item-stats">
-                        {itemStatLines(it).map((l) => (
-                          <span key={l.key}>{formatStat(l.key, l.value)}</span>
-                        ))}
-                      </div>
+                      {consum && it.effect ? (
+                        <div className="consumable-effect">{formatEffect(it.effect)}</div>
+                      ) : (
+                        <div className="inv-item-stats">
+                          {itemStatLines(it).map((l) => (
+                            <span key={l.key}>{formatStat(l.key, l.value)}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="inv-item-actions">
-                    <button
-                      className="inv-btn equip"
-                      disabled={lockedWeapon}
-                      onClick={() => commit((s) => equipItem(s, hero, it))}
-                    >
-                      {lockedWeapon ? "Not for this hero" : "Equip"}
-                    </button>
-                    <button className="inv-btn discard" onClick={() => commit((s) => discardItem(s, it.id))}>
-                      ✕
-                    </button>
+                    {consum ? (
+                      <>
+                        <select className="inv-btn assign-select" value="" onChange={(e) => {
+                          const slotIdx = parseInt(e.target.value);
+                          if (isNaN(slotIdx)) return;
+                          commit(s => {
+                            const existing = s.quickSlots[slotIdx];
+                            if (existing && existing.name === it.name) {
+                              // same item — just ensure it's there
+                              return;
+                            }
+                            s.quickSlots[slotIdx] = { ...it, stackCount: 1 };
+                          });
+                        }}>
+                          <option value="">Assign to slot...</option>
+                          {[0,1,2,3].map(i => <option key={i} value={i}>Slot {i+4}</option>)}
+                        </select>
+                        <button className="inv-btn discard" onClick={() => {
+                          const price = getConsumableSellPrice(it.name);
+                          commit((s) => {
+                            s.gold += price;
+                            const newCount = (it.stackCount ?? 1) - 1;
+                            if (newCount <= 0) {
+                              s.inventory = s.inventory.filter(i => i.id !== it.id);
+                            } else {
+                              const item = s.inventory.find(i => i.id === it.id);
+                              if (item) item.stackCount = newCount;
+                            }
+                          });
+                        }}>
+                          Sell ◆{getConsumableSellPrice(it.name)}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="inv-btn equip"
+                          disabled={lockedWeapon}
+                          onClick={() => commit((s) => equipItem(s, hero, it))}
+                        >
+                          {lockedWeapon ? "Not for this hero" : "Equip"}
+                        </button>
+                        <button className="inv-btn discard" onClick={() => commit((s) => discardItem(s, it.id))}>
+                          ✕
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------- Shop Panel ----------------
+function ShopPanel({ save, commit }: {
+  save: SaveData; commit: (m: (s: SaveData) => void) => void;
+}) {
+  const shopItems = CONSUMABLE_DEFS.filter(d => d.rarity === "common" || d.rarity === "uncommon");
+  const [bought, setBought] = useState<string | null>(null);
+  const getStack = (name: string) => {
+    const items = save.inventory.filter(i => i.name === name);
+    return items.reduce((sum, i) => sum + (i.stackCount ?? 1), 0);
+  };
+  return (
+    <div>
+      <div className="shop-gold">Your gold: ◆ {save.gold}</div>
+      {bought && <div className="shop-bought">+1 {bought}!</div>}
+      <div className="shop-grid">
+        {shopItems.map((def) => {
+          const canBuy = save.gold >= def.price;
+          const owned = getStack(def.name);
+          return (
+            <div key={def.name} className="shop-card" style={{ borderColor: RARITY_COLOR[def.rarity] }}>
+              <ItemIcon slot="consumable" rarity={def.rarity} consumableType={def.consumableType} size={32} />
+              <div className="shop-name" style={{ color: RARITY_COLOR[def.rarity] }}>{def.name}</div>
+              <div className="shop-effect">{formatEffect(def.effect)}</div>
+              {owned > 0 && <div className="shop-owned">Owned: {owned}</div>}
+              <div className="shop-price">◆ {def.price}</div>
+              <button
+                className="inv-btn"
+                disabled={!canBuy}
+                onClick={() => {
+                  commit((s) => {
+                    s.gold -= def.price;
+                    const existing = s.inventory.find(i => i.name === def.name && (i.stackCount ?? 1) < (i.maxStack ?? 10));
+                    if (existing) {
+                      existing.stackCount = (existing.stackCount ?? 1) + 1;
+                    } else {
+                      s.inventory.push(rollConsumableFromDef(def));
+                    }
+                  });
+                  setBought(def.name);
+                  setTimeout(() => setBought(null), 1500);
+                }}
+              >
+                {canBuy ? "Buy" : "Not enough gold"}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

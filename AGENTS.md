@@ -12,7 +12,7 @@ Pixel-art dungeon crawler. Next.js + HTML5 Canvas. Player picks hero, raids dung
 ## Game Flow
 
 ```
-Town (hub) → pick dungeon + mode → Raid (real-time combat) → Results → Town
+Town (hub) → pick dungeon + mode → Raid (real-time combat, consumable drops) → Results → Town
 ```
 
 ## Project Structure
@@ -32,7 +32,7 @@ lib/
     heroes.ts           # Hero definitions (knight/mage/priest/tank/archer) with skill cooldowns
     monsters.ts         # Monster + boss definitions, 45 BossSpellKind types, 9 spells per boss
     dungeons.ts         # Dungeon configs (7 total) + GameMode system (5 modes)
-    items.ts            # Item system: slots, stats, rarity, rolling, luck formula
+    items.ts            # Item system: slots, stats, rarity, rolling, luck formula + CONSUMABLE_DEFS (12 consumables)
     map.ts              # Dungeon room generation
     input.ts            # Keyboard + mouse input
     render.ts           # Canvas draw helpers
@@ -349,6 +349,38 @@ Regular monsters (non-boss) have all boss-only fields set to defaults:
 
 **Items drop from:** dungeon completion (rarity rolled with dungeon luck), equip in town
 
+### Consumable Items System
+
+**Types:**
+- `ConsumableType = "potion" | "scroll"`
+- `ConsumableEffect` with types: heal, healOverTime, buff, revive, escape, lootBoost, reveal, teleport
+- `EquipSlot` extended with `"consumable"`
+- `Item` extended with optional: `consumableType`, `effect`, `stackCount`, `maxStack`, `price`
+
+**Catalog (12 items):**
+- 7 potions: Minor Heal, Heal, Greater Heal, Regen, Might, Swift, Ironskin
+- 5 scrolls: Escape, Revive, Loot, Town Portal, Identify
+- Potions stack to 10, scrolls stack to 5
+
+**Quick Slot System (Raid):**
+- 4 quick slots, keys 4/5/6/7
+- Assign consumables from town inventory before raid
+- 1s cooldown between uses
+- Revive Scroll auto-triggers on death
+
+**Effect Routing:**
+- heal: instant HP restore
+- healOverTime: % maxHP/s for duration
+- buff: multiplicative stat boost for duration
+- revive: auto-consume on death, restore % maxHP
+- escape: end raid (keep gold, no loot)
+- lootBoost: +luck for duration
+- reveal: show all rooms on minimap
+- teleport: return to town
+
+**Market:** Merchant Pell sells common/uncommon. Sell at 50% price.
+**Drop:** 20% room clear, 40%/10% boss kill. Luck-modified rarity.
+
 ### ItemIcon Component (`app/ItemIcon.tsx`)
 
 SVG pixel-art icon per slot, tinted by rarity color.
@@ -366,7 +398,9 @@ SVG pixel-art icon per slot, tinted by rarity color.
 - Keyboard shortcut `C` for Character panel (only when canvas not focused)
 - **HeroPreview**: canvas-based hero sprite preview in character select
 - **Dialog system**: NPC interaction with text lines
-- **Inventory panel**: filter by slot, equip/unequip/discard
+- **Inventory panel**: filter by slot (including consumable filter), equip/unequip/discard
+- **Shop panel**: Merchant Pell consumable shop (common/uncommon), sell at 50% price
+- **Quick slot assignment**: assign consumables to 4 quick slots (keys 4/5/6/7) before raid
 - **Dungeon select**: grid of dungeon cards + mode selector buttons below
 - **Equipment panel**: left column (5 equip slots + totals summary), right column (filtered inventory list)
 - Weapon hero-lock: can't equip weapon if `weapon.hero` mismatches current hero

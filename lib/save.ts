@@ -16,6 +16,7 @@ export interface SaveData {
   cleared: DungeonId[];
   inventory: Item[]; // shared item pool
   selectedHero: HeroId; // hero used to walk the town & default for raids
+  quickSlots: (Item | null)[]; // consumable quick slots (length 4)
 }
 
 const KEY = "dungeon-hunter-save-v2";
@@ -30,7 +31,7 @@ function emptyEquip(): Record<EquipSlot, string | null> {
 export function defaultSave(): SaveData {
   const heroes = {} as Record<HeroId, HeroProgress>;
   for (const id of HERO_IDS) heroes[id] = { level: 1, xp: 0, equipped: emptyEquip() };
-  return { version: VERSION, gold: 0, heroes, cleared: [], inventory: [], selectedHero: "knight" };
+  return { version: VERSION, gold: 0, heroes, cleared: [], inventory: [], selectedHero: "knight", quickSlots: [null, null, null, null] };
 }
 
 export function loadSave(): SaveData {
@@ -71,6 +72,10 @@ export function loadSave(): SaveData {
         ? (parsed.selectedHero as HeroId)
         : "knight";
 
+    const quickSlots = Array.isArray(parsed.quickSlots)
+      ? (parsed.quickSlots as (Item | null)[]).map(s => s && isValidItem(s) ? s : null)
+      : [null, null, null, null];
+
     return {
       version: VERSION,
       gold: typeof parsed.gold === "number" ? parsed.gold : 0,
@@ -78,6 +83,7 @@ export function loadSave(): SaveData {
       cleared: Array.isArray(parsed.cleared) ? (parsed.cleared as DungeonId[]) : [],
       inventory,
       selectedHero,
+      quickSlots,
     };
   } catch {
     return defaultSave();
