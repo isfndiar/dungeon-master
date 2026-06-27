@@ -435,10 +435,10 @@ button {
   background: rgba(0,0,0,0.5);
   border: 1px solid #555;
   color: var(--gold);
-  font-size: 10px;
-  padding: 2px 6px;
+  font-size: 14px;
+  padding: 4px 10px;
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: 4px;
   line-height: 1;
   pointer-events: auto;
 }
