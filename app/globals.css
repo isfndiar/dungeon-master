@@ -1175,6 +1175,13 @@ button {
   display: block;
   cursor: pointer;
 }
+.town-bgm {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  pointer-events: auto;
+}
 .town-hint {
   font-size: 7px;
   color: var(--muted);

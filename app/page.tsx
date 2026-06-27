@@ -24,6 +24,9 @@ import { InteractButton } from "./InteractButton";
 
 type Panel = "none" | "heroes" | "equipment" | "dungeon" | "market";
 
+const TOWN_BGM_SRC = "/music/Kingdom_at_Last_Light.mp3";
+const BGM_KEY = "dungeon-hunter-bgm-enabled";
+
 function HeroPreview({ id, size = 64 }: { id: HeroId; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -63,6 +66,10 @@ export default function Town() {
   const [loadPct, setLoadPct] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [engineReady, setEngineReady] = useState(false);
+  const [bgmEnabled, setBgmEnabled] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem(BGM_KEY) !== "off";
+  });
   const [panel, setPanel] = useState<Panel>("none");
   const [dialog, setDialog] = useState<{ name: string; lines: string[]; idx: number } | null>(null);
   const [nearbyName, setNearbyName] = useState<string | null>(null);
@@ -70,6 +77,7 @@ export default function Town() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<TownEngine | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const panelRef = useRef<Panel>("none");
   const dialogOpenRef = useRef(false);
 
@@ -99,6 +107,28 @@ export default function Town() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const audio = new Audio(TOWN_BGM_SRC);
+    audio.loop = true;
+    audio.volume = 0.3;
+    audioRef.current = audio;
+    if (localStorage.getItem(BGM_KEY) !== "off") {
+      audio.play().catch(() => {});
+    }
+    return () => { audio.pause(); audio.src = ""; };
+  }, [loaded]);
+
+  const toggleBgm = useCallback(() => {
+    const next = !bgmEnabled;
+    setBgmEnabled(next);
+    localStorage.setItem(BGM_KEY, next ? "on" : "off");
+    if (audioRef.current) {
+      if (next) audioRef.current.play().catch(() => {});
+      else audioRef.current.pause();
+    }
+  }, [bgmEnabled]);
 
   const handleInteract = useCallback((npc: NpcDef) => {
     const action: TownAction = npc.action;
@@ -220,6 +250,9 @@ export default function Town() {
       </div>
 
       <div className="town-frame">
+        <button className="bgm-btn town-bgm" onClick={toggleBgm} title={bgmEnabled ? "Mute music" : "Play music"}>
+          {bgmEnabled ? "♫" : "♫̸"}
+        </button>
         <canvas
           ref={canvasRef}
           tabIndex={0}
