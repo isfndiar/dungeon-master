@@ -9,6 +9,10 @@ export class Input {
   virtualAttack = false;
   virtualInteract = false;
   virtualSkills: boolean[] = [false, false, false];
+  // virtual aim (from attack joystick drag)
+  virtualAimX = 0;
+  virtualAimY = 0;
+  virtualAimActive = false;
   private el: HTMLElement;
   private scale = 1;
   private offsetX = 0;

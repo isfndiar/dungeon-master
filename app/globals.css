@@ -407,11 +407,13 @@ button {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 0;
+  padding: 12px;
 }
 
 .game-frame {
   position: relative;
+  width: 960px;
+  height: 540px;
   border: 4px solid var(--border);
   background: #000;
   box-shadow: 0 0 0 2px #000, 0 8px 40px rgba(0, 0, 0, 0.6);
@@ -1341,25 +1343,36 @@ button {
   right: 0;
   background: rgba(0,0,0,0.65);
 }
-.atk-btn {
-  width: 72px;
-  height: 72px;
+.atk-joystick {
+  width: 90px;
+  height: 90px;
   border-radius: 50%;
-  background: rgba(255,80,80,0.3);
-  border: 3px solid rgba(255,80,80,0.7);
+  background: rgba(255,80,80,0.2);
+  border: 3px solid rgba(255,80,80,0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  font-weight: 900;
-  color: #ff6a6a;
-  text-shadow: 1px 1px 0 #000;
+  position: relative;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
-.atk-btn:active {
-  background: rgba(255,80,80,0.5);
+.atk-joystick-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255,80,80,0.45);
+  border: 2px solid rgba(255,80,80,0.7);
+  transition: transform 0.05s;
+}
+.atk-joystick-label {
+  position: absolute;
+  bottom: -14px;
+  font-size: 9px;
+  font-weight: 900;
+  color: #ff6a6a;
+  text-shadow: 1px 1px 0 #000;
+  pointer-events: none;
 }
 .interact-btn {
   width: 60px;
@@ -1381,6 +1394,15 @@ button {
 }
 .interact-btn:active {
   background: rgba(74,180,255,0.45);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mobile-controls { display: none; }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .raid-wrap { padding: 0; }
+  .game-frame { width: 100vw; height: 100vh; border: none; box-shadow: none; }
 }
 
 

@@ -817,6 +817,16 @@ export class Engine {
   }
 
   private updateAimFromInput() {
+    if (this.input.virtualAimActive) {
+      const len = Math.hypot(this.input.virtualAimX, this.input.virtualAimY);
+      if (len > 0.1) {
+        this.aimX = this.input.virtualAimX / len;
+        this.aimY = this.input.virtualAimY / len;
+        this.faceLeft = this.aimX < 0;
+        this.facing = facingFromVec(this.aimX, this.aimY, this.facing);
+      }
+      return;
+    }
     const dx = this.input.mouseX - this.px;
     const dy = this.input.mouseY - this.py;
     const len = Math.hypot(dx, dy);
@@ -3121,6 +3131,36 @@ export class Engine {
 
     // weapon swing in front (default)
     if (this.atkAnim > 0 && !behind && this.hero.id !== "priest" && this.hero.id !== "knight") this.drawAttackFx();
+
+    // aim arrow (when virtual aim is active)
+    if (this.input.virtualAimActive) {
+      const len = Math.hypot(this.input.virtualAimX, this.input.virtualAimY);
+      if (len > 0.1) {
+        const ax = this.input.virtualAimX / len;
+        const ay = this.input.virtualAimY / len;
+        const dist = 20;
+        const tipX = this.px + ax * dist;
+        const tipY = this.py + ay * dist;
+        ctx.save();
+        ctx.globalAlpha = 0.8;
+        ctx.strokeStyle = "#ffd24a";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.px + ax * 8, this.py + ay * 8);
+        ctx.lineTo(tipX, tipY);
+        ctx.stroke();
+        // arrowhead
+        const ang = Math.atan2(ay, ax);
+        ctx.fillStyle = "#ffd24a";
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(tipX - Math.cos(ang - 0.4) * 5, tipY - Math.sin(ang - 0.4) * 5);
+        ctx.lineTo(tipX - Math.cos(ang + 0.4) * 5, tipY - Math.sin(ang + 0.4) * 5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
   }
 
   private drawAttackFx() {

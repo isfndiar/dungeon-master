@@ -97,10 +97,12 @@ function RaidInner() {
     }, bonus, modeParam, save.quickSlots);
 
     const updateScale = () => {
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const scaleX = vw / VIEW_W;
-      const scaleY = vh / VIEW_H;
+      const frame = canvas.parentElement;
+      if (!frame) return;
+      const fw = frame.clientWidth;
+      const fh = frame.clientHeight;
+      const scaleX = fw / VIEW_W;
+      const scaleY = fh / VIEW_H;
       const s = Math.min(scaleX, scaleY);
       engine.setScale(s);
       canvas.style.width = Math.floor(VIEW_W * s) + "px";
@@ -202,10 +204,7 @@ function RaidInner() {
 
   return (
     <div className="raid-wrap">
-      <div
-        className="game-frame"
-        style={{ width: "100vw", height: "100vh" }}
-      >
+      <div className="game-frame">
         <canvas
           ref={canvasRef}
           className="game-canvas"
