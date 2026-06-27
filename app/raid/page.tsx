@@ -64,6 +64,7 @@ function RaidInner() {
   const [result, setResult] = useState<RaidResult | null>(null);
   const [levelUps, setLevelUps] = useState<{ name: string; level: number }[]>([]);
   const [needFocus, setNeedFocus] = useState(true);
+  const [engineReady, setEngineReady] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [bgmEnabled, setBgmEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -110,6 +111,7 @@ function RaidInner() {
 
     engineRef.current = engine;
     engine.start();
+    setEngineReady(true);
 
     const onVis = () => {
       if (document.hidden) engine.setPaused(true);
@@ -146,6 +148,7 @@ function RaidInner() {
       audio.src = "";
       engine.destroy();
       engineRef.current = null;
+      setEngineReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [valid]);
@@ -391,14 +394,14 @@ function RaidInner() {
             </button>
           </div>
         )}
-      </div>
 
-      {!needFocus && !result && hud && engineRef.current && (
-        <div className="mobile-controls">
-          <Joystick input={engineRef.current.input} />
-          <ActionButtons input={engineRef.current.input} skills={hud.skills} />
-        </div>
-      )}
+        {engineReady && engineRef.current && (
+          <div className="mobile-controls">
+            <Joystick input={engineRef.current.input} />
+            {hud && <ActionButtons input={engineRef.current.input} skills={hud.skills} />}
+          </div>
+        )}
+      </div>
 
       <div className="controls-hint">
         {isMobile
