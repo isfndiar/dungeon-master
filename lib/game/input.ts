@@ -3,6 +3,11 @@ export class Input {
   mouseX = 0;
   mouseY = 0;
   mouseDown = false;
+  // virtual joystick / button state (set by mobile UI components)
+  virtualDirX = 0;
+  virtualDirY = 0;
+  virtualAttack = false;
+  virtualSkills: boolean[] = [false, false, false];
   private el: HTMLElement;
   private scale = 1;
   private offsetX = 0;
@@ -45,6 +50,30 @@ export class Input {
 
   pressed(...keys: string[]): boolean {
     return keys.some((k) => this.keys.has(k));
+  }
+
+  getMoveDir(): { x: number; y: number } {
+    let mx = 0, my = 0;
+    if (this.pressed("a", "arrowleft")) mx -= 1;
+    if (this.pressed("d", "arrowright")) mx += 1;
+    if (this.pressed("w", "arrowup")) my -= 1;
+    if (this.pressed("s", "arrowdown")) my += 1;
+    if (mx === 0 && my === 0 && (this.virtualDirX !== 0 || this.virtualDirY !== 0)) {
+      return { x: this.virtualDirX, y: this.virtualDirY };
+    }
+    return { x: mx, y: my };
+  }
+
+  isAttackDown(): boolean {
+    return this.mouseDown || this.pressed(" ") || this.virtualAttack;
+  }
+
+  consumeSkill(index: number): boolean {
+    if (this.virtualSkills[index]) {
+      this.virtualSkills[index] = false;
+      return true;
+    }
+    return false;
   }
 
   destroy() {

@@ -1261,3 +1261,106 @@ button {
   padding: 14px;
   overflow-y: auto;
 }
+
+/* Mobile Controls */
+.mobile-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+.joystick-base {
+  position: absolute;
+  bottom: 40px;
+  left: 40px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: 3px solid rgba(255,255,255,0.25);
+  pointer-events: auto;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.joystick-thumb {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.35);
+  border: 2px solid rgba(255,255,255,0.5);
+  transition: transform 0.05s;
+}
+.action-buttons {
+  position: absolute;
+  bottom: 30px;
+  right: 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  pointer-events: auto;
+}
+.skill-buttons {
+  display: flex;
+  gap: 8px;
+}
+.skill-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.5);
+  border: 2px solid rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+}
+.skill-btn.ready {
+  border-color: var(--gold);
+  background: rgba(255,210,74,0.15);
+}
+.skill-btn-key {
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 1px 1px 0 #000;
+  z-index: 1;
+}
+.skill-btn-cd {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0,0,0,0.65);
+}
+.atk-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(255,80,80,0.3);
+  border: 3px solid rgba(255,80,80,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 900;
+  color: #ff6a6a;
+  text-shadow: 1px 1px 0 #000;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.atk-btn:active {
+  background: rgba(255,80,80,0.5);
+}
+
+@media (min-width: 769px) {
+  .mobile-controls { display: none; }
+}
