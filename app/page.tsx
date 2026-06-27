@@ -114,16 +114,25 @@ export default function Town() {
     audio.loop = true;
     audio.volume = 0.3;
     audioRef.current = audio;
-    if (localStorage.getItem(BGM_KEY) !== "off") {
-      const tryPlay = () => {
+
+    const tryPlay = () => {
+      if (audio.paused && localStorage.getItem(BGM_KEY) !== "off") {
         audio.play().catch(() => {});
-        window.removeEventListener("click", tryPlay);
-        window.removeEventListener("touchstart", tryPlay);
-      };
-      window.addEventListener("click", tryPlay, { once: true });
-      window.addEventListener("touchstart", tryPlay, { once: true });
-    }
-    return () => { audio.pause(); audio.src = ""; };
+      }
+    };
+
+    // try immediately (may work if user already interacted)
+    tryPlay();
+    // also try on next user interaction
+    window.addEventListener("pointerdown", tryPlay, { once: true });
+    window.addEventListener("keydown", tryPlay, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", tryPlay);
+      window.removeEventListener("keydown", tryPlay);
+      audio.pause();
+      audio.src = "";
+    };
   }, [loaded]);
 
   const toggleBgm = useCallback(() => {
