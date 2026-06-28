@@ -8,6 +8,7 @@ import { DUNGEONS, DungeonId, DUNGEON_IDS, MODE_DEF, GameMode, isValidMode } fro
 import { loadSave, writeSave, heroBonusStats } from "@/lib/save";
 import { Item, itemStatLines, formatStat, RARITY_COLOR, RARITY_LABEL, SLOT_LABEL } from "@/lib/game/items";
 import { ItemIcon } from "../ItemIcon";
+import { SkillIcon } from "../SkillIcon";
 import { Joystick } from "../Joystick";
 import { ActionButtons } from "../ActionButtons";
 
@@ -90,11 +91,12 @@ function RaidInner() {
     const save = loadSave();
     const heroLevel = save.heroes[heroParam!].level;
     const bonus = heroBonusStats(save, heroParam!);
+    const heroProgress = save.heroes[heroParam!];
 
     const engine = new Engine(canvas, heroParam!, heroLevel, dungeonParam!, {
       onHud: (h) => setHud(h),
       onEnd: (res) => finishRaid(res),
-    }, bonus, modeParam, save.quickSlots);
+    }, bonus, modeParam, save.quickSlots, heroProgress.skillLevels, heroProgress.skillBranches);
 
     const updateScale = () => {
       const frame = canvas.parentElement;
@@ -167,6 +169,7 @@ function RaidInner() {
     while (prog.xp >= xpToNext(prog.level)) {
       prog.xp -= xpToNext(prog.level);
       prog.level += 1;
+      prog.skillPoints += 1;
       ups.push({ name: HEROES[heroParam!].name, level: prog.level });
     }
     if (res.win && !save.cleared.includes(dungeonParam!)) {
@@ -288,6 +291,7 @@ function RaidInner() {
                     (s.ready ? " ready" : "")
                   }
                 >
+                  <SkillIcon kind={s.kind as any} size={18} />
                   <div className="key">{s.key}</div>
                   <div className="nm">{s.name}</div>
                   {!s.ready && (

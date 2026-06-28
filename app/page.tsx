@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  HEROES, HERO_IDS, HeroId, hpForLevel, dmgForLevel, xpToNext,
+  HEROES, HERO_IDS, HeroId, hpForLevel, dmgForLevel, xpToNext, RESPEC_COST,
 } from "@/lib/game/heroes";
 import { DUNGEONS, DUNGEON_IDS, DungeonId, MODE_LIST, MODE_DEF, GameMode, isValidMode } from "@/lib/game/dungeons";
 import { heroSprites, drawSprite } from "@/lib/game/sprites";
@@ -19,6 +19,7 @@ import {
   CONSUMABLE_DEFS, rollConsumableFromDef, formatEffect, getConsumableSellPrice, isConsumable,
 } from "@/lib/game/items";
 import { ItemIcon } from "./ItemIcon";
+import { SkillIcon } from "./SkillIcon";
 import { Joystick } from "./Joystick";
 import { InteractButton } from "./InteractButton";
 import {
@@ -26,7 +27,7 @@ import {
   DEFAULT_KEYBINDS, loadKeybinds, saveKeybinds, assignKey, formatKey,
 } from "@/lib/game/keybinds";
 
-type Panel = "none" | "heroes" | "equipment" | "dungeon" | "market" | "settings";
+type Panel = "none" | "heroes" | "equipment" | "dungeon" | "market" | "settings" | "skills";
 
 const TOWN_BGM_SRC = "/music/Kingdom_at_Last_Light.mp3";
 const BGM_KEY = "dungeon-hunter-bgm-enabled";
@@ -288,6 +289,7 @@ export default function Town() {
       <div className="town-nav">
         {[
           { key: "heroes" as const, label: "Character", icon: "⚔", hotkey: "C" },
+          { key: "skills" as const, label: "Skills", icon: "✦" },
           { key: "market" as const, label: "Market", icon: "🛒" },
           { key: "equipment" as const, label: "Inventory", icon: "🎒" },
           { key: "dungeon" as const, label: "Dungeon", icon: "🏰" },
@@ -314,6 +316,11 @@ export default function Town() {
       {panel === "heroes" && (
         <Modal title="Choose Your Champion" onClose={closePanel}>
           <HeroSelect save={save} commit={commit} onPick={closePanel} />
+        </Modal>
+      )}
+      {panel === "skills" && (
+        <Modal title={`${HEROES[hero].name} — Skills`} onClose={closePanel}>
+          <SkillUpgradePanel save={save} hero={hero} commit={commit} />
         </Modal>
       )}
       {panel === "equipment" && (
@@ -394,6 +401,133 @@ function HeroSelect({ save, commit, onPick }: {
               ))}
             </div>
             <div className="xpbar"><div style={{ width: pct + "%" }} /></div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------- Skill Upgrade Panel ----------------
+function SkillUpgradePanel({ save, hero, commit }: {
+  save: SaveData; hero: HeroId; commit: (m: (s: SaveData) => void) => void;
+}) {
+  const def = HEROES[hero];
+  const prog = save.heroes[hero];
+
+  return (
+    <div className="skill-upgrade-panel">
+      <div className="skill-upgrade-header">
+        <span>Skills — {def.name}</span>
+        <span className="skill-sp-badge">SP: {prog.skillPoints}</span>
+      </div>
+      {def.skills.map((skill, i) => {
+        const lv = prog.skillLevels[i];
+        const branch = prog.skillBranches[i];
+        const upgradeCost = skill.upgrade.cost;
+        const canUpgradeLv2 = lv === 1 && prog.skillPoints >= upgradeCost.sp && save.gold >= upgradeCost.gold;
+        const canRespec = lv >= 3 && branch !== null && save.gold >= RESPEC_COST;
+
+        return (
+          <div className="skill-upgrade-card" key={skill.key}>
+            <div className="skill-upgrade-top">
+              <SkillIcon kind={skill.kind} size={28} />
+              <div className="skill-upgrade-name" style={{ color: skill.color || "var(--text)" }}>
+                {skill.name}
+              </div>
+              <div className="skill-lv-pips">
+                {[1, 2, 3].map((pip) => (
+                  <span key={pip} className={"lv-pip" + (pip <= lv ? " filled" : "")} />
+                ))}
+                <span className="skill-lv-label">Lv {lv}</span>
+              </div>
+            </div>
+            <div className="skill-upgrade-desc">{skill.desc}</div>
+
+            {/* Level 1 → 2 upgrade */}
+            {lv === 1 && (
+              <div className="skill-upgrade-action">
+                <div className="skill-upgrade-info">{skill.upgrade.desc}</div>
+                <div className="skill-upgrade-cost">
+                  <span>Cost: {upgradeCost.sp} SP + ◆{upgradeCost.gold}</span>
+                </div>
+                <button
+                  className="upgrade-btn"
+                  disabled={!canUpgradeLv2}
+                  onClick={() => commit((s) => {
+                    const p = s.heroes[hero];
+                    p.skillLevels[i] = 2;
+                    p.skillPoints -= upgradeCost.sp;
+                    s.gold -= upgradeCost.gold;
+                  })}
+                >
+                  {canUpgradeLv2 ? "Upgrade to Lv 2" : "Cannot afford"}
+                </button>
+              </div>
+            )}
+
+            {/* Level 2 → 3: pick branch */}
+            {lv === 2 && (
+              <div className="skill-upgrade-action">
+                <div className="branch-choice">
+                  <div className="branch-title">Choose specialization:</div>
+                  {skill.branches.map((br) => {
+                    const brCost = { sp: 2, gold: 200 };
+                    const canPick = prog.skillPoints >= brCost.sp && save.gold >= brCost.gold;
+                    return (
+                      <div className="branch-option" key={br.id}>
+                        <div className="branch-name">{br.name}</div>
+                        <div className="branch-desc">{br.desc}</div>
+                        <div className="skill-upgrade-cost">
+                          <span>Cost: {brCost.sp} SP + ◆{brCost.gold}</span>
+                        </div>
+                        <button
+                          className="upgrade-btn branch-btn"
+                          disabled={!canPick}
+                          onClick={() => commit((s) => {
+                            const p = s.heroes[hero];
+                            p.skillLevels[i] = 3;
+                            p.skillBranches[i] = br.id;
+                            p.skillPoints -= brCost.sp;
+                            s.gold -= brCost.gold;
+                          })}
+                        >
+                          {canPick ? `Choose ${br.name}` : "Cannot afford"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Level 3: show chosen branch + respec */}
+            {lv === 3 && branch && (
+              <div className="skill-upgrade-action">
+                <div className="branch-chosen">
+                  <span className="branch-chosen-label">Branch:</span>
+                  <span className="branch-chosen-name">
+                    {skill.branches.find((b) => b.id === branch)?.name ?? branch}
+                  </span>
+                  <span className="branch-chosen-desc">
+                    {skill.branches.find((b) => b.id === branch)?.desc}
+                  </span>
+                </div>
+                <button
+                  className="respec-btn"
+                  disabled={!canRespec}
+                  onClick={() => commit((s) => {
+                    const p = s.heroes[hero];
+                    p.skillBranches[i] = null;
+                    p.skillLevels[i] = 2;
+                    s.gold -= RESPEC_COST;
+                  })}
+                  title={`Respec branch (◆${RESPEC_COST})`}
+                >
+                  Respec (◆{RESPEC_COST})
+                </button>
+              </div>
+            )}
           </div>
         );
       })}

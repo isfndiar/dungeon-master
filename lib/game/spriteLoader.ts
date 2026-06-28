@@ -233,12 +233,12 @@ export function drawHeroDir(
 
 const MAGE_CELL = 128;
 
-// Elf archer idle/attack sheets use 3-direction layout (down/left/up), no dedicated right
+// Elf archer idle/attack sheets use 3-direction layout (left/up/down), no dedicated right
 const ELF_ARCHER_DIR_ROW_3DIR: Record<Facing, number> = {
-  down: 0,
-  left: 1,
-  right: 1,
-  up: 2,
+  down: 2,
+  left: 0,
+  right: 0,
+  up: 1,
 };
 
 const MAGE_DIR_ROW: Record<Facing, number> = {

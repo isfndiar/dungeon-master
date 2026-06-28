@@ -25,6 +25,10 @@ export interface HeroProgress {
   xp: number;
   // equipped item id per slot (null = empty)
   equipped: Record<EquipSlot, string | null>;
+  // skill upgrade system
+  skillLevels: [number, number, number]; // 1-3 per skill
+  skillBranches: [string | null, string | null, string | null]; // chosen branch ID or null
+  skillPoints: number; // unspent SP
 }
 
 export interface SaveData {
@@ -50,7 +54,7 @@ function emptyEquip(): Record<EquipSlot, string | null> {
 
 export function defaultSave(): SaveData {
   const heroes = {} as Record<HeroId, HeroProgress>;
-  for (const id of HERO_IDS) heroes[id] = { level: 1, xp: 0, equipped: emptyEquip() };
+  for (const id of HERO_IDS) heroes[id] = { level: 1, xp: 0, equipped: emptyEquip(), skillLevels: [1, 1, 1], skillBranches: [null, null, null], skillPoints: 0 };
   return {
     version: VERSION,
     gold: 0,
@@ -100,7 +104,16 @@ export function loadSave(): SaveData {
             if (typeof v === "string") equipped[s] = v;
           }
         }
-        heroes[id] = { level: h.level, xp: h.xp, equipped };
+        heroes[id] = {
+          level: h.level, xp: h.xp, equipped,
+          skillLevels: Array.isArray(h.skillLevels) && h.skillLevels.length === 3
+            ? h.skillLevels as [number, number, number]
+            : [1, 1, 1],
+          skillBranches: Array.isArray(h.skillBranches) && h.skillBranches.length === 3
+            ? h.skillBranches as [string | null, string | null, string | null]
+            : [null, null, null],
+          skillPoints: typeof h.skillPoints === "number" ? h.skillPoints : 0,
+        };
       }
     }
 

@@ -175,6 +175,9 @@ export interface SkillContext extends GameContext {
   getSmiteMark(): Enemy | null;
   curDmg(): number;
   bonusCdr: number;
+  // Skill upgrade info
+  skillLevel: number;        // 1, 2, or 3
+  skillBranch: string | null; // branch ID if level 3
 }
 
 // ---- Constants ----

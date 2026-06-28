@@ -73,6 +73,24 @@ export const MIGRATIONS: MigrationFn[] = [
     data.version = 4;
     return data;
   },
+
+  // v4 → v5: Added skill upgrade system (skillLevels, skillBranches, skillPoints per hero)
+  (data) => {
+    if (data.heroes && typeof data.heroes === "object") {
+      for (const key of Object.keys(data.heroes)) {
+        const h = data.heroes[key];
+        if (!h) continue;
+        if (!Array.isArray(h.skillLevels)) h.skillLevels = [1, 1, 1];
+        if (!Array.isArray(h.skillBranches)) h.skillBranches = [null, null, null];
+        if (typeof h.skillPoints !== "number") {
+          // Grant retroactive SP: (level - 1) points for existing progress
+          h.skillPoints = Math.max(0, (h.level || 1) - 1);
+        }
+      }
+    }
+    data.version = 5;
+    return data;
+  },
 ];
 
 /**

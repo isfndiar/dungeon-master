@@ -11,31 +11,32 @@
   --accent: #b388ff;
 }
 
+/* ---------------- Loading Screen ---------------- */
 .loading-screen {
+  position: fixed;
+  inset: 0;
   width: 100vw;
   height: 100vh;
   background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 9999;
 }
 .loading-content {
-  text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
 }
 .loading-title {
-  font-family: monospace;
-  font-size: 20px;
-  font-weight: 900;
-  color: #ffd24a;
-  text-shadow: 2px 2px 0 #000;
-  letter-spacing: 4px;
+  font-size: 18px;
+  color: var(--gold);
+  text-shadow: 2px 2px 0 #6a4a00;
+  letter-spacing: 2px;
 }
 .loading-bar-track {
-  width: 280px;
+  width: 240px;
   height: 12px;
   background: var(--panel);
   border: 2px solid var(--border);
@@ -44,13 +45,191 @@
 }
 .loading-bar-fill {
   height: 100%;
-  background: var(--gold);
-  transition: width 0.15s ease;
+  background: linear-gradient(90deg, var(--gold), #ffb800);
+  transition: width 0.2s ease-out;
 }
 .loading-text {
-  font-family: monospace;
-  font-size: 10px;
-  color: #9a8fb0;
+  font-size: 8px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+
+/* ---------------- Skill Upgrade Panel ---------------- */
+.skill-upgrade-panel {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.skill-upgrade-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-size: 9px;
+  color: var(--text);
+}
+.skill-sp-badge {
+  background: var(--panel2);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  padding: 2px 8px;
+  border-radius: 2px;
+  font-size: 8px;
+}
+.skill-upgrade-card {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.skill-upgrade-card:last-child {
+  margin-bottom: 0;
+}
+.skill-upgrade-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.skill-upgrade-name {
+  font-size: 9px;
+  font-weight: bold;
+}
+.skill-lv-pips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.lv-pip {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  background: transparent;
+}
+.lv-pip.filled {
+  background: var(--gold);
+  border-color: var(--gold);
+}
+.skill-lv-label {
+  font-size: 7px;
+  color: var(--muted);
+  margin-left: 4px;
+}
+.skill-upgrade-desc {
+  font-size: 7px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+.skill-upgrade-action {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.skill-upgrade-info {
+  font-size: 7px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.skill-upgrade-cost {
+  font-size: 7px;
+  color: var(--gold);
+  margin-bottom: 6px;
+}
+.upgrade-btn {
+  font-size: 7px;
+  padding: 4px 10px;
+  background: var(--panel);
+  border: 1px solid var(--gold);
+  color: var(--gold);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.upgrade-btn:hover:not(:disabled) {
+  background: rgba(255, 210, 74, 0.15);
+}
+.upgrade-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--muted);
+  color: var(--muted);
+}
+.branch-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.branch-title {
+  font-size: 7px;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.branch-option {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+}
+.branch-name {
+  font-size: 8px;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+.branch-desc {
+  font-size: 7px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.branch-btn {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.branch-btn:hover:not(:disabled) {
+  background: rgba(179, 136, 255, 0.15);
+}
+.branch-chosen {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.branch-chosen-label {
+  font-size: 7px;
+  color: var(--muted);
+}
+.branch-chosen-name {
+  font-size: 8px;
+  color: var(--accent);
+}
+.branch-chosen-desc {
+  font-size: 7px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.respec-btn {
+  font-size: 7px;
+  padding: 4px 10px;
+  background: var(--panel);
+  border: 1px solid #ff5a5a;
+  color: #ff5a5a;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.respec-btn:hover:not(:disabled) {
+  background: rgba(255, 90, 90, 0.15);
+}
+.respec-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: var(--muted);
+  color: var(--muted);
 }
 
 * {
@@ -1055,8 +1234,9 @@ button {
 }
 .town-nav {
   position: absolute;
-  bottom: 16px;
-  left: 16px;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1106,7 +1286,7 @@ button {
 .town-nav-btn .nav-tooltip {
   display: none;
   position: absolute;
-  left: 52px;
+  right: 52px;
   top: 50%;
   transform: translateY(-50%);
   background: rgba(10, 8, 16, 0.95);

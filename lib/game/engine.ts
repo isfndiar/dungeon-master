@@ -178,6 +178,7 @@ export interface EngineCallbacks {
 export interface SkillHud {
   key: string;
   name: string;
+  kind: string;
   ready: boolean;
   cdPct: number; // 0..1 progress to ready
   active: boolean; // buff currently active
@@ -322,6 +323,8 @@ export class Engine {
   private bonusCdr = 0;   // cooldown reduction fraction
   private bonusSpeed = 0; // flat extra move speed
   private bonusCrit = 0;  // crit chance fraction
+  private skillLevels: [number, number, number] = [1, 1, 1];
+  private skillBranches: [string | null, string | null, string | null] = [null, null, null];
 
   private cb: EngineCallbacks;
 
@@ -333,7 +336,9 @@ export class Engine {
     cb: EngineCallbacks,
     bonus?: ItemStats,
     mode: GameMode = "normal",
-    quickSlots?: (Item | null)[]
+    quickSlots?: (Item | null)[],
+    skillLevels?: [number, number, number],
+    skillBranches?: [string | null, string | null, string | null]
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
@@ -345,6 +350,8 @@ export class Engine {
     this.hero = HEROES[heroId];
     this.heroId = heroId;
     this.heroLevel = heroLevel;
+    this.skillLevels = skillLevels ?? [1, 1, 1];
+    this.skillBranches = skillBranches ?? [null, null, null];
     this.dungeon = DUNGEONS[dungeonId];
     this.mode = mode;
     this.difficulty = modeDifficulty(this.dungeon, mode);
@@ -937,7 +944,7 @@ export class Engine {
           this.aimY = skillAim.aimY;
           this.faceLeft = this.aimX < 0;
         }
-        this.doSkill(this.hero.skills[i].kind, !!skillAim);
+        this.doSkill(this.hero.skills[i].kind, !!skillAim, i);
         this.skillTimers[i] = this.hero.skills[i].cooldown * cdrMult;
         // Restore aim if it was overridden
         if (skillAim) {
@@ -995,8 +1002,8 @@ export class Engine {
     }
   }
 
-  private doSkill(k: SkillKind, mobileAim = false) {
-    executeSkill(this.getSkillContext(), k, mobileAim);
+  private doSkill(k: SkillKind, mobileAim = false, skillIndex = 0) {
+    executeSkill(this.getSkillContext(skillIndex), k, mobileAim);
   }
 
   private getGameContext(): GameContext {
@@ -1026,10 +1033,15 @@ export class Engine {
     };
   }
 
-  private getSkillContext(): SkillContext {
+  private getSkillContext(skillIndex = 0): SkillContext {
+    // Get skill level and branch from save data passed at construction
+    const skillLevel = this.skillLevels?.[skillIndex] ?? 1;
+    const skillBranch = this.skillBranches?.[skillIndex] ?? null;
     return {
       ...this.getGameContext(),
       bonusCdr: this.bonusCdr,
+      skillLevel,
+      skillBranch,
       setPx: (x) => { this.px = x; },
       setPy: (y) => { this.py = y; },
       setPhp: (hp) => { this.php = hp; },
@@ -3076,6 +3088,7 @@ export class Engine {
     const skills: SkillHud[] = this.hero.skills.map((s, i) => ({
       key: s.key.toUpperCase(),
       name: s.name,
+      kind: s.kind,
       ready: this.skillTimers[i] <= 0,
       cdPct: this.skillTimers[i] <= 0 ? 1 : 1 - this.skillTimers[i] / s.cooldown,
       active: this.skillActive(s.kind),
