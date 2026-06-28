@@ -75,8 +75,8 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
     case "swordstorm": {
       const count = lv >= 2 ? 7 : 5;
       const swordLife = lv >= 2 ? 4 : 3;
-      const hitsPerSword = branch === "infinite_pierce" ? 999 : lv >= 2 ? 5 : 3;
-      const swordDmgMult = branch === "infinite_pierce" ? 0.9 : branch === "blade_vortex" ? 1.3 : 1.1;
+      const hitsPerSword = branch === "soul_blades" ? 999 : lv >= 2 ? 5 : 3;
+      const swordDmgMult = branch === "soul_blades" ? 0.9 : branch === "blade_vortex" ? 1.3 : 1.1;
       for (let i = 0; i < count; i++) {
         const ang = (i / count) * Math.PI * 2;
         const ox = Math.cos(ang) * 18;
@@ -118,7 +118,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
         time: 0,
         hitSet: new Set(),
       });
-      ctx.float(branch === "permafrost_pool" ? "PERMAFROST" : "FROST NOVA", ctx.px, ctx.py - 18, "#7ad7ff");
+      ctx.float(branch === "permafrost" ? "PERMAFROST" : "FROST NOVA", ctx.px, ctx.py - 18, "#7ad7ff");
       break;
     }
     case "meteor": {
@@ -177,7 +177,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
         tx = clamp(ctx.input.mouseX, FIELD.x + 8, FIELD.x + FIELD.w - 8);
         ty = clamp(ctx.input.mouseY, FIELD.y + 8, FIELD.y + FIELD.h - 8);
       }
-      if (branch === "phase_clone") {
+      if (branch === "phase_shift") {
         for (const e of ctx.enemies) {
           if (dist(e.x, e.y, ctx.px, ctx.py) < 40 + e.size * 0.4) {
             ctx.damageEnemy(e, dmg * 1.2);
@@ -192,7 +192,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
         ctx.setPx(resolved.x);
         ctx.setPy(resolved.y);
       }
-      if (branch === "warp_aoe") {
+      if (branch === "warp_strike") {
         for (const e of ctx.enemies) {
           if (dist(e.x, e.y, ctx.px, ctx.py) < 50 + e.size * 0.4) {
             ctx.damageEnemy(e, dmg * 1.5);
@@ -212,7 +212,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
 
       if (mark && ctx.enemies.includes(mark)) {
         const e = mark;
-        const execMult = (branch === "execute" && e.hp / e.maxHp < 0.3) ? 4.0 : lv >= 2 ? 2.8 : 2.2;
+        const execMult = (branch === "divine_execute" && e.hp / e.maxHp < 0.3) ? 4.0 : lv >= 2 ? 2.8 : 2.2;
         const behind = e.faceLeft ? 1 : -1;
         const bx = clamp(e.x + behind * 28, FIELD.x + 8, FIELD.x + FIELD.w - 8);
         const by = clamp(e.y + 8, FIELD.y + 8, FIELD.y + FIELD.h - 8);
@@ -231,18 +231,18 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
       break;
     }
     case "heal": {
-      const healPct = branch === "strong_hot" ? 0.30 : lv >= 2 ? 0.50 : 0.40;
+      const healPct = branch === "renewal" ? 0.30 : lv >= 2 ? 0.50 : 0.40;
       const healAmt = Math.round(ctx.phpMax * healPct);
       ctx.setPhp(Math.min(ctx.phpMax, ctx.php + healAmt));
-      const hotDur = branch === "strong_hot" ? 6 : lv >= 2 ? 5 : 4;
-      const hotPct = branch === "strong_hot" ? 0.12 : lv >= 2 ? 0.10 : 0.08;
+      const hotDur = branch === "renewal" ? 6 : lv >= 2 ? 5 : 4;
+      const hotPct = branch === "renewal" ? 0.12 : lv >= 2 ? 0.10 : 0.08;
       ctx.setHealOverTime(hotDur, Math.round(ctx.phpMax * hotPct));
       ctx.setDivineHealTime(0.8);
-      const aoeRadius = branch === "heal_stun" ? 100 : 80;
+      const aoeRadius = branch === "divine_wrath" ? 100 : 80;
       for (const e of ctx.enemies) {
         if (dist(e.x, e.y, ctx.px, ctx.py) < aoeRadius + e.size * 0.4) {
           ctx.damageEnemy(e, dmg * 0.8);
-          if (branch === "heal_stun") {
+          if (branch === "divine_wrath") {
             e.frozen = Math.max(e.frozen, 1.5);
           }
         }
@@ -273,7 +273,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
         }
       }
       ctx.spawnRing(ctx.px, ctx.py, "#8a8f99", slamRadius);
-      if (branch === "fissure_line") {
+      if (branch === "fissure") {
         const fissureRange = 120;
         const fx = ctx.px + ctx.aimX * fissureRange;
         const fy = ctx.py + ctx.aimY * fissureRange;
@@ -318,7 +318,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
       const base = Math.atan2(ctx.aimY, ctx.aimX);
       const half = Math.floor(arrowCount / 2);
 
-      if (branch === "arrow_rain") {
+      if (branch === "rain_of_arrows") {
         const range = 80;
         const tx = clamp(ctx.px + ctx.aimX * range, FIELD.x + 8, FIELD.x + FIELD.w - 8);
         const ty = clamp(ctx.py + ctx.aimY * range, FIELD.y + 8, FIELD.y + FIELD.h - 8);
@@ -345,7 +345,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
     case "rapidfire": {
       const dur = lv >= 2 ? 5 : 4;
       ctx.setRapidFire(dur);
-      if (branch === "dodge_buff") {
+      if (branch === "bullet_time") {
         ctx.setDodgeTimer(dur);
       }
       ctx.float("RAPID FIRE", ctx.px, ctx.py - 18, "#3f8f5a");
@@ -353,7 +353,7 @@ export function executeSkill(ctx: SkillContext, k: SkillKind, mobileAim = false)
       break;
     }
     case "snipe": {
-      const snipeDmgMult = branch === "guaranteed_crit" ? 6.0 : branch === "full_pierce" ? 4.5 : lv >= 2 ? 5.0 : 4.0;
+      const snipeDmgMult = branch === "headshot" ? 6.0 : branch === "piercing_round" ? 4.5 : lv >= 2 ? 5.0 : 4.0;
       ctx.firePiercing(ctx.aimX, ctx.aimY, dmg * snipeDmgMult, "arrow", true);
       const dodgeDur = lv >= 2 ? 4 : 3;
       ctx.setDodgeTimer(dodgeDur);
