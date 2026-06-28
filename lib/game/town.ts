@@ -60,6 +60,17 @@ export class TownEngine {
   private roadPattern?: CanvasPattern;
   private waterTile?: HTMLImageElement;
   private waterPattern?: CanvasPattern;
+  private dirtTile?: HTMLImageElement;
+  private dirtPattern?: CanvasPattern;
+  private grassTuftsTile?: HTMLImageElement;
+  private grassTuftsPattern?: CanvasPattern;
+  private grassFlowersTile?: HTMLImageElement;
+  private grassFlowersPattern?: CanvasPattern;
+  private grassRocksTile?: HTMLImageElement;
+  private grassRocksPattern?: CanvasPattern;
+  private darkGrassTile?: HTMLImageElement;
+  private darkGrassPattern?: CanvasPattern;
+  private waterAnimTime = 0; // accumulates for water wave offset
   private nearby: NpcDef | null = null;
   private prevInteract = false;
   private transitionState: "none" | "fade-out" | "fade-in" = "none";
@@ -194,6 +205,30 @@ export class TownEngine {
     const water = new Image();
     water.src = "/terrain/water-tile.png";
     this.waterTile = water;
+    const dirt = new Image();
+    dirt.src = "/terrain/dirt_path.png";
+    this.dirtTile = dirt;
+    const grassTufts = new Image();
+    grassTufts.src = "/terrain/grass_tufts.png";
+    this.grassTuftsTile = grassTufts;
+    const grassFlowers = new Image();
+    grassFlowers.src = "/terrain/grass_yellow_flowers.png";
+    this.grassFlowersTile = grassFlowers;
+    const grassRocks = new Image();
+    grassRocks.src = "/terrain/grass_small_rocks.png";
+    this.grassRocksTile = grassRocks;
+    const darkGrass = new Image();
+    darkGrass.src = "/terrain/dark_shadow_grass.png";
+    this.darkGrassTile = darkGrass;
+
+    // Preload props
+    if (this.currentMap.props) {
+      for (const p of this.currentMap.props) {
+        const img = new Image();
+        img.src = p.asset;
+        p.image = img;
+      }
+    }
   }
 
   // collision: player feet (a small box at the sprite base) vs building bodies
@@ -222,6 +257,25 @@ export class TownEngine {
           fx - r < t.x + t.w &&
           fy + r > t.y &&
           fy - r < t.y + t.h
+        ) {
+          return true;
+        }
+      }
+    }
+    // props with collision (trees, etc.)
+    if (this.currentMap.props) {
+      for (const p of this.currentMap.props) {
+        if (p.collision === false) continue; // skip non-blocking props
+        // collision box is bottom half of prop (trunk area)
+        const cx = p.x + p.w * 0.25;
+        const cy = p.y + p.h * 0.6;
+        const cw = p.w * 0.5;
+        const ch = p.h * 0.35;
+        if (
+          fx + r > cx &&
+          fx - r < cx + cw &&
+          fy + r > cy &&
+          fy - r < cy + ch
         ) {
           return true;
         }
@@ -261,6 +315,7 @@ export class TownEngine {
       this.facing = facingFromVec(mx, my, this.facing);
     }
     this.animTime += dt;
+    this.waterAnimTime += dt;
     // bounds + edge-exit detection
     const W = this.currentMap.worldW;
     const H = this.currentMap.worldH;
@@ -407,34 +462,93 @@ export class TownEngine {
       }
     }
 
-    // painted terrain rects (brick roads + water) — drawn over grass/plaza
+    // painted terrain rects (brick roads + water + dirt + grass variants) — drawn over grass/plaza
     const terrain = this.currentMap.terrainRects;
     if (terrain && terrain.length) {
-      // brick rects use the road texture (or flat fallback)
-      const brickFill = this.roadPattern ?? "#9a8f7a";
       for (const t of terrain) {
-        if (t.type !== "brick") continue;
-        ctx.fillStyle = brickFill;
-        ctx.fillRect(t.x, t.y, t.w, t.h);
-      }
-      // water rects use the water texture (or flat blue fallback)
-      const water = this.waterTile;
-      if (water?.complete && water.naturalWidth > 0 && !this.waterPattern) {
-        this.waterPattern = ctx.createPattern(water, "repeat") ?? undefined;
-      }
-      const waterFill = this.waterPattern ?? "#3a6a9a";
-      for (const t of terrain) {
-        if (t.type !== "water") continue;
-        ctx.fillStyle = waterFill;
-        ctx.fillRect(t.x, t.y, t.w, t.h);
+        let pattern: CanvasPattern | string | undefined;
+        switch (t.type) {
+          case "brick":
+            if (!this.roadPattern && this.roadTile?.complete && this.roadTile.naturalWidth > 0) {
+              this.roadPattern = ctx.createPattern(this.roadTile, "repeat") ?? undefined;
+            }
+            pattern = this.roadPattern ?? "#9a8f7a";
+            break;
+          case "water":
+            if (!this.waterPattern && this.waterTile?.complete && this.waterTile.naturalWidth > 0) {
+              this.waterPattern = ctx.createPattern(this.waterTile, "repeat") ?? undefined;
+            }
+            pattern = this.waterPattern ?? "#3a6a9a";
+            break;
+          case "dirt":
+            if (!this.dirtPattern && this.dirtTile?.complete && this.dirtTile.naturalWidth > 0) {
+              this.dirtPattern = ctx.createPattern(this.dirtTile, "repeat") ?? undefined;
+            }
+            pattern = this.dirtPattern ?? "#8a7040";
+            break;
+          case "grass_tufts":
+            if (!this.grassTuftsPattern && this.grassTuftsTile?.complete && this.grassTuftsTile.naturalWidth > 0) {
+              this.grassTuftsPattern = ctx.createPattern(this.grassTuftsTile, "repeat") ?? undefined;
+            }
+            pattern = this.grassTuftsPattern ?? "#4a8a3a";
+            break;
+          case "grass_flowers":
+            if (!this.grassFlowersPattern && this.grassFlowersTile?.complete && this.grassFlowersTile.naturalWidth > 0) {
+              this.grassFlowersPattern = ctx.createPattern(this.grassFlowersTile, "repeat") ?? undefined;
+            }
+            pattern = this.grassFlowersPattern ?? "#5a9a3a";
+            break;
+          case "grass_rocks":
+            if (!this.grassRocksPattern && this.grassRocksTile?.complete && this.grassRocksTile.naturalWidth > 0) {
+              this.grassRocksPattern = ctx.createPattern(this.grassRocksTile, "repeat") ?? undefined;
+            }
+            pattern = this.grassRocksPattern ?? "#5a7a4a";
+            break;
+          case "dark_grass":
+            if (!this.darkGrassPattern && this.darkGrassTile?.complete && this.darkGrassTile.naturalWidth > 0) {
+              this.darkGrassPattern = ctx.createPattern(this.darkGrassTile, "repeat") ?? undefined;
+            }
+            pattern = this.darkGrassPattern ?? "#2a4a2a";
+            break;
+        }
+        if (pattern) {
+          if (t.type === "water" && this.waterPattern) {
+            // Animated water: shift pattern offset for wave effect
+            const waveX = Math.sin(this.waterAnimTime * 0.8) * 6;
+            const waveY = Math.cos(this.waterAnimTime * 0.6) * 4;
+            ctx.save();
+            ctx.fillStyle = this.waterPattern;
+            ctx.translate(waveX, waveY);
+            ctx.fillRect(t.x - waveX, t.y - waveY, t.w, t.h);
+            ctx.restore();
+            // Subtle shimmer overlay
+            ctx.save();
+            ctx.globalAlpha = 0.06 + 0.03 * Math.sin(this.waterAnimTime * 2.5);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(t.x, t.y, t.w, t.h);
+            ctx.restore();
+          } else {
+            ctx.fillStyle = pattern;
+            ctx.fillRect(t.x, t.y, t.w, t.h);
+          }
+        }
       }
     }
 
-    // buildings + entities interleaved by Y for depth sorting
-    // (entities behind buildings are hidden)
+    // buildings + entities + props interleaved by Y for depth sorting
     const draws: { y: number; fn: () => void }[] = [];
     for (const b of this.currentMap.buildings) {
       draws.push({ y: b.y + b.h, fn: () => this.drawBuilding(b) });
+    }
+    // props (trees, lake, etc.)
+    if (this.currentMap.props) {
+      for (const p of this.currentMap.props) {
+        if (p.image?.complete && p.image.naturalWidth > 0) {
+          draws.push({ y: p.y + p.h, fn: () => {
+            ctx.drawImage(p.image!, p.x, p.y, p.w, p.h);
+          }});
+        }
+      }
     }
     for (const n of this.currentMap.npcs) {
       draws.push({ y: n.y, fn: () => this.drawNpc(n) });

@@ -66,11 +66,22 @@ export interface Plaza {
 // A painted terrain rectangle (grid-aligned). "brick" overlays a road texture,
 // "water" overlays the water tile and blocks the player (collision).
 export interface TerrainRect {
-  type: "brick" | "water";
+  type: "brick" | "water" | "dirt" | "grass_tufts" | "grass_flowers" | "grass_rocks" | "dark_grass";
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+// Decorative prop (tree, lake image, etc.) — rendered depth-sorted by Y, no collision by default
+export interface TerrainProp {
+  asset: string;        // path to PNG
+  x: number;
+  y: number;
+  w: number;            // display width
+  h: number;            // display height
+  collision?: boolean;  // blocks player movement (default true for trees)
+  image?: HTMLImageElement; // preloaded (filled at build)
 }
 
 export interface TownMap {
@@ -84,7 +95,8 @@ export interface TownMap {
   spawnY: number;
   exits: { left?: string; right?: string };
   plazas: Plaza[];
-  terrainRects?: TerrainRect[]; // optional painted terrain (brick/water)
+  terrainRects?: TerrainRect[]; // optional painted terrain (brick/water/dirt/grass)
+  props?: TerrainProp[];        // decorative objects (trees, lakes, etc.)
 }
 
 export interface TownCallbacks {

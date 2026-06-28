@@ -239,7 +239,7 @@ export function buildTownMap(): TownMap {
     npcs,
     spawnX: WORLD_W / 2,
     spawnY: WORLD_H - 60,
-    exits: {}, // west_village disabled — kept in codebase but not accessible
+    exits: { left: "west_village" },
     plazas: [
       { x: 120, y: 340, w: 1040, h: 230 },
       { x: 460, y: 200, w: 360, h: 140 },
