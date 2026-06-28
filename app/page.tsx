@@ -21,8 +21,12 @@ import {
 import { ItemIcon } from "./ItemIcon";
 import { Joystick } from "./Joystick";
 import { InteractButton } from "./InteractButton";
+import {
+  KeyBindings, RAID_ACTIONS, RaidAction, ACTION_LABELS,
+  DEFAULT_KEYBINDS, loadKeybinds, saveKeybinds, assignKey, formatKey,
+} from "@/lib/game/keybinds";
 
-type Panel = "none" | "heroes" | "equipment" | "dungeon" | "market";
+type Panel = "none" | "heroes" | "equipment" | "dungeon" | "market" | "settings";
 
 const TOWN_BGM_SRC = "/music/Kingdom_at_Last_Light.mp3";
 const BGM_KEY = "dungeon-hunter-bgm-enabled";
@@ -287,6 +291,7 @@ export default function Town() {
           { key: "market" as const, label: "Market", icon: "🛒" },
           { key: "equipment" as const, label: "Inventory", icon: "🎒" },
           { key: "dungeon" as const, label: "Dungeon", icon: "🏰" },
+          { key: "settings" as const, label: "Settings", icon: "⚙" },
         ].map((item) => (
           <button
             key={item.key}
@@ -328,6 +333,11 @@ export default function Town() {
       {panel === "market" && (
         <Modal title="Merchant Pell's Shop" onClose={closePanel}>
           <ShopPanel save={save} commit={commit} />
+        </Modal>
+      )}
+      {panel === "settings" && (
+        <Modal title="Controls" onClose={closePanel}>
+          <KeybindPanel />
         </Modal>
       )}
     </main>
@@ -749,4 +759,56 @@ function bossLabel(boss: string): string {
     lava_golem: "Lava Golem",
   };
   return map[boss] ?? boss;
+}
+
+// ---------------- Keybind Settings ----------------
+function KeybindPanel() {
+  const [bindings, setBindings] = useState<KeyBindings>(() => loadKeybinds());
+  const [listening, setListening] = useState<RaidAction | null>(null);
+
+  useEffect(() => {
+    if (!listening) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const key = e.key.toLowerCase();
+      if (key === "escape") {
+        setListening(null);
+        return;
+      }
+      const updated = assignKey(bindings, listening, key);
+      setBindings(updated);
+      saveKeybinds(updated);
+      setListening(null);
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [listening, bindings]);
+
+  const resetAll = () => {
+    setBindings({ ...DEFAULT_KEYBINDS });
+    saveKeybinds({ ...DEFAULT_KEYBINDS });
+    setListening(null);
+  };
+
+  return (
+    <div className="keybind-panel">
+      <div className="keybind-hint">Click an action then press any key to rebind. ESC to cancel.</div>
+      <div className="keybind-list">
+        {RAID_ACTIONS.map((action) => (
+          <div
+            key={action}
+            className={"keybind-row" + (listening === action ? " listening" : "")}
+            onClick={() => setListening(action)}
+          >
+            <span className="keybind-action">{ACTION_LABELS[action]}</span>
+            <span className="keybind-key">
+              {listening === action ? "Press a key..." : formatKey(bindings[action])}
+            </span>
+          </div>
+        ))}
+      </div>
+      <button className="keybind-reset" onClick={resetAll}>RESET TO DEFAULT</button>
+    </div>
+  );
 }

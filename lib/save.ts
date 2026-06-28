@@ -1,6 +1,24 @@
 import { HeroId, HERO_IDS } from "./game/heroes";
 import { DungeonId } from "./game/dungeons";
 import { Item, EquipSlot, EQUIP_SLOTS, ItemStats, sumStats } from "./game/items";
+import { migrate, CURRENT_VERSION } from "./game/migrations";
+import { KeyBindings, DEFAULT_KEYBINDS } from "./game/keybinds";
+
+export interface SaveSettings {
+  bgmEnabled: boolean;
+  sfxEnabled: boolean;
+  keybinds: KeyBindings;
+}
+
+export interface SaveStatistics {
+  totalRaids: number;
+  totalKills: number;
+  totalDeaths: number;
+  totalGoldEarned: number;
+  bossesDefeated: string[];
+  highestEndlessWave: number;
+  playTime: number; // seconds
+}
 
 export interface HeroProgress {
   level: number;
@@ -17,10 +35,12 @@ export interface SaveData {
   inventory: Item[]; // shared item pool
   selectedHero: HeroId; // hero used to walk the town & default for raids
   quickSlots: (Item | null)[]; // consumable quick slots (length 4)
+  settings: SaveSettings;
+  statistics: SaveStatistics;
 }
 
 const KEY = "dungeon-hunter-save-v2";
-const VERSION = 2;
+const VERSION = CURRENT_VERSION;
 
 function emptyEquip(): Record<EquipSlot, string | null> {
   const e = {} as Record<EquipSlot, string | null>;
@@ -31,7 +51,20 @@ function emptyEquip(): Record<EquipSlot, string | null> {
 export function defaultSave(): SaveData {
   const heroes = {} as Record<HeroId, HeroProgress>;
   for (const id of HERO_IDS) heroes[id] = { level: 1, xp: 0, equipped: emptyEquip() };
-  return { version: VERSION, gold: 0, heroes, cleared: [], inventory: [], selectedHero: "knight", quickSlots: [null, null, null, null] };
+  return {
+    version: VERSION,
+    gold: 0,
+    heroes,
+    cleared: [],
+    inventory: [],
+    selectedHero: "knight",
+    quickSlots: [null, null, null, null],
+    settings: { bgmEnabled: true, sfxEnabled: true, keybinds: { ...DEFAULT_KEYBINDS } },
+    statistics: {
+      totalRaids: 0, totalKills: 0, totalDeaths: 0,
+      totalGoldEarned: 0, bossesDefeated: [], highestEndlessWave: 0, playTime: 0,
+    },
+  };
 }
 
 export function loadSave(): SaveData {
@@ -41,11 +74,19 @@ export function loadSave(): SaveData {
     let raw = window.localStorage.getItem(KEY);
     if (!raw) {
       const old = window.localStorage.getItem("dungeon-hunter-save-v1");
-      if (old) raw = old; // migrate progress, ignore version mismatch below
+      if (old) raw = old;
     }
     if (!raw) return defaultSave();
-    const parsed = JSON.parse(raw) as Partial<SaveData> & { heroes?: any };
-    if (!parsed || !parsed.heroes) return defaultSave();
+
+    let parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return defaultSave();
+
+    // Run migration chain
+    parsed = migrate(parsed);
+    if (!parsed) return defaultSave();
+
+    // Validate and construct save from migrated data
+    if (!parsed.heroes) return defaultSave();
 
     const base = defaultSave();
     const heroes = { ...base.heroes };
@@ -76,6 +117,28 @@ export function loadSave(): SaveData {
       ? (parsed.quickSlots as (Item | null)[]).map(s => s && isValidItem(s) ? s : null)
       : [null, null, null, null];
 
+    const settings: SaveSettings = parsed.settings && typeof parsed.settings === "object"
+      ? {
+          bgmEnabled: parsed.settings.bgmEnabled ?? true,
+          sfxEnabled: parsed.settings.sfxEnabled ?? true,
+          keybinds: parsed.settings.keybinds && typeof parsed.settings.keybinds === "object"
+            ? { ...DEFAULT_KEYBINDS, ...parsed.settings.keybinds }
+            : { ...DEFAULT_KEYBINDS },
+        }
+      : base.settings;
+
+    const statistics: SaveStatistics = parsed.statistics && typeof parsed.statistics === "object"
+      ? {
+          totalRaids: parsed.statistics.totalRaids ?? 0,
+          totalKills: parsed.statistics.totalKills ?? 0,
+          totalDeaths: parsed.statistics.totalDeaths ?? 0,
+          totalGoldEarned: parsed.statistics.totalGoldEarned ?? 0,
+          bossesDefeated: Array.isArray(parsed.statistics.bossesDefeated) ? parsed.statistics.bossesDefeated : [],
+          highestEndlessWave: parsed.statistics.highestEndlessWave ?? 0,
+          playTime: parsed.statistics.playTime ?? 0,
+        }
+      : base.statistics;
+
     return {
       version: VERSION,
       gold: typeof parsed.gold === "number" ? parsed.gold : 0,
@@ -84,6 +147,8 @@ export function loadSave(): SaveData {
       inventory,
       selectedHero,
       quickSlots,
+      settings,
+      statistics,
     };
   } catch {
     return defaultSave();

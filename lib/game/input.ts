@@ -1,3 +1,5 @@
+import { KeyBindings, loadKeybinds } from "./keybinds";
+
 export class Input {
   keys = new Set<string>();
   mouseX = 0;
@@ -19,10 +21,12 @@ export class Input {
     { active: false, aimX: 0, aimY: 0, cast: false, cancelled: false },
     { active: false, aimX: 0, aimY: 0, cast: false, cancelled: false },
   ];
+
   private el: HTMLElement;
   private scale = 1;
   private offsetX = 0;
   private offsetY = 0;
+  private bindings: KeyBindings;
 
   private onKeyDown = (e: KeyboardEvent) => {
     const k = e.key.toLowerCase();
@@ -46,13 +50,22 @@ export class Input {
     if (e.button === 0) this.mouseDown = false;
   };
 
-  constructor(el: HTMLElement) {
+  constructor(el: HTMLElement, bindings?: KeyBindings) {
     this.el = el;
+    this.bindings = bindings || loadKeybinds();
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     el.addEventListener("mousemove", this.onMouseMove);
     el.addEventListener("mousedown", this.onMouseDown);
     window.addEventListener("mouseup", this.onMouseUp);
+  }
+
+  setBindings(bindings: KeyBindings) {
+    this.bindings = bindings;
+  }
+
+  getBindings(): KeyBindings {
+    return this.bindings;
   }
 
   getScale(): number {
@@ -69,10 +82,10 @@ export class Input {
 
   getMoveDir(): { x: number; y: number } {
     let mx = 0, my = 0;
-    if (this.pressed("a", "arrowleft")) mx -= 1;
-    if (this.pressed("d", "arrowright")) mx += 1;
-    if (this.pressed("w", "arrowup")) my -= 1;
-    if (this.pressed("s", "arrowdown")) my += 1;
+    if (this.keys.has(this.bindings.moveLeft) || this.pressed("arrowleft")) mx -= 1;
+    if (this.keys.has(this.bindings.moveRight) || this.pressed("arrowright")) mx += 1;
+    if (this.keys.has(this.bindings.moveUp) || this.pressed("arrowup")) my -= 1;
+    if (this.keys.has(this.bindings.moveDown) || this.pressed("arrowdown")) my += 1;
     if (mx === 0 && my === 0 && (this.virtualDirX !== 0 || this.virtualDirY !== 0)) {
       return { x: this.virtualDirX, y: this.virtualDirY };
     }
@@ -80,7 +93,17 @@ export class Input {
   }
 
   isAttackDown(): boolean {
-    return this.mouseDown || this.pressed(" ") || this.virtualAttack;
+    return this.mouseDown || this.keys.has(this.bindings.attack) || this.virtualAttack;
+  }
+
+  isSkillDown(index: number): boolean {
+    const key = index === 0 ? this.bindings.skill1 : index === 1 ? this.bindings.skill2 : this.bindings.skill3;
+    return this.keys.has(key);
+  }
+
+  isQuickSlotDown(index: number): boolean {
+    const key = index === 0 ? this.bindings.quickSlot1 : index === 1 ? this.bindings.quickSlot2 : index === 2 ? this.bindings.quickSlot3 : this.bindings.quickSlot4;
+    return this.keys.has(key);
   }
 
   consumeSkill(index: number): boolean {

@@ -743,6 +743,13 @@ button {
   background: rgba(10, 8, 16, 0.6);
   padding: 4px 10px;
   border-radius: 3px;
+  animation: hintFade 4s forwards;
+}
+
+@keyframes hintFade {
+  0% { opacity: 1; }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .lvlup {
@@ -1172,6 +1179,79 @@ button {
 .quickslot-key { position: absolute; bottom: 1px; right: 3px; font-size: 8px; color: var(--muted); }
 .quickslot-remove { position: absolute; top: 0; left: 2px; font-size: 8px; background: none; border: none; color: #f66; cursor: pointer; padding: 0; line-height: 1; }
 .assign-select { font-size: 9px; padding: 2px 4px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
+
+/* Keybind settings panel */
+.keybind-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.keybind-hint {
+  font-size: 8px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.8;
+}
+.keybind-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.keybind-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 2px solid var(--border);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.keybind-row:hover {
+  border-color: var(--gold);
+}
+.keybind-row.listening {
+  border-color: var(--accent);
+  background: var(--panel2);
+  box-shadow: 0 0 8px rgba(179, 136, 255, 0.3);
+}
+.keybind-action {
+  font-size: 9px;
+  color: var(--text);
+}
+.keybind-key {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--gold);
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  min-width: 40px;
+  text-align: center;
+}
+.keybind-row.listening .keybind-key {
+  color: var(--accent);
+  border-color: var(--accent);
+  animation: keybind-pulse 0.8s infinite alternate;
+}
+@keyframes keybind-pulse {
+  from { opacity: 0.6; }
+  to { opacity: 1; }
+}
+.keybind-reset {
+  margin-top: 8px;
+  padding: 10px;
+  font-size: 9px;
+  background: var(--panel2);
+  border: 2px solid var(--border);
+  color: var(--muted);
+  text-align: center;
+  cursor: pointer;
+}
+.keybind-reset:hover {
+  color: #ff6a6a;
+  border-color: #5a2a2a;
+}
 .hero-chip {
   display: flex;
   align-items: center;
