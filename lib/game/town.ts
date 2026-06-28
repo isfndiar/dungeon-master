@@ -70,7 +70,11 @@ export class TownEngine {
   private grassRocksPattern?: CanvasPattern;
   private darkGrassTile?: HTMLImageElement;
   private darkGrassPattern?: CanvasPattern;
-  private waterAnimTime = 0; // accumulates for water wave offset
+  private lavaTile?: HTMLImageElement;
+  private lavaPattern?: CanvasPattern;
+  private volcanicCrackedTile?: HTMLImageElement;
+  private volcanicCrackedPattern?: CanvasPattern;
+  private waterAnimTime = 0; // accumulates for water/lava wave offset
   private nearby: NpcDef | null = null;
   private prevInteract = false;
   private transitionState: "none" | "fade-out" | "fade-in" = "none";
@@ -147,7 +151,20 @@ export class TownEngine {
     if (this.nearby) this.cb.onInteract(this.nearby);
   }
 
-  transitionTo(mapId: string, fromEdge: "left" | "right") {
+  markEnemyDefeated(enemyId: string) {
+    for (const map of Object.values(this.maps)) {
+      if (!map.enemies) continue;
+      for (const e of map.enemies) {
+        if (e.id === enemyId) {
+          e.defeated = true;
+          e.respawnCooldown = e.respawnTimer;
+          return;
+        }
+      }
+    }
+  }
+
+  transitionTo(mapId: string, fromEdge: "left" | "right" | "up" | "down") {
     if (this.transitionState !== "none") return;
     const target = this.maps[mapId];
     if (!target) return;
@@ -155,9 +172,20 @@ export class TownEngine {
     this.transitionState = "fade-out";
     this.transitionTimer = 0;
     // spawn on the opposite edge of the new map
-    this.transitionSpawn = fromEdge === "left"
-      ? { x: target.worldW - 30, y: target.spawnY }   // entered new map via its left edge → spawn at right
-      : { x: 30, y: target.spawnY };                   // entered new map via its right edge → spawn at left
+    switch (fromEdge) {
+      case "left":
+        this.transitionSpawn = { x: target.worldW - 30, y: target.spawnY };
+        break;
+      case "right":
+        this.transitionSpawn = { x: 30, y: target.spawnY };
+        break;
+      case "up":
+        this.transitionSpawn = { x: target.spawnX, y: target.worldH - 50 };
+        break;
+      case "down":
+        this.transitionSpawn = { x: target.spawnX, y: 50 };
+        break;
+    }
   }
 
   private updateTransition(dt: number) {
@@ -169,6 +197,24 @@ export class TownEngine {
       const id = this.transitionTarget!;
       this.currentMap = this.maps[id];
       this.currentMapId = id;
+      // reload base tile if different map has different ground
+      const newBaseTile = this.currentMap.baseTile || "/terrain/grass-tile.png";
+      if (this.grassTile?.src !== newBaseTile) {
+        const grass = new Image();
+        grass.src = newBaseTile;
+        this.grassTile = grass;
+        this.grassPattern = undefined; // force re-create pattern
+      }
+      // preload props for new map
+      if (this.currentMap.props) {
+        for (const p of this.currentMap.props) {
+          if (!p.image) {
+            const img = new Image();
+            img.src = p.asset;
+            p.image = img;
+          }
+        }
+      }
       const sp = this.transitionSpawn!;
       this.px = sp.x;
       this.py = sp.y;
@@ -197,7 +243,7 @@ export class TownEngine {
       }
     }
     const grass = new Image();
-    grass.src = "/terrain/grass-tile.png";
+    grass.src = this.currentMap.baseTile || "/terrain/grass-tile.png";
     this.grassTile = grass;
     const road = new Image();
     road.src = "/terrain/gray-brick-road-tile.png";
@@ -220,6 +266,12 @@ export class TownEngine {
     const darkGrass = new Image();
     darkGrass.src = "/terrain/dark_shadow_grass.png";
     this.darkGrassTile = darkGrass;
+    const lava = new Image();
+    lava.src = "/terrain/lava.png";
+    this.lavaTile = lava;
+    const volcanicCracked = new Image();
+    volcanicCracked.src = "/terrain/volcanic_rock_cracked.png";
+    this.volcanicCrackedTile = volcanicCracked;
 
     // Preload props
     if (this.currentMap.props) {
@@ -247,11 +299,11 @@ export class TownEngine {
         return true;
       }
     }
-    // water terrain blocks the player
+    // water/lava terrain blocks the player
     const terrain = this.currentMap.terrainRects;
     if (terrain) {
       for (const t of terrain) {
-        if (t.type !== "water") continue;
+        if (t.type !== "water" && t.type !== "lava") continue;
         if (
           fx + r > t.x &&
           fx - r < t.x + t.w &&
@@ -328,6 +380,14 @@ export class TownEngine {
       this.transitionTo(ex.right, "right");
       return;
     }
+    if (ex.up && this.py <= 40) {
+      this.transitionTo(ex.up, "up");
+      return;
+    }
+    if (ex.down && this.py >= H - 14) {
+      this.transitionTo(ex.down, "down");
+      return;
+    }
     // no exit on that edge → hard clamp
     this.px = clamp(this.px, 14, W - 14);
     this.py = clamp(this.py, 40, H - 14);
@@ -396,6 +456,84 @@ export class TownEngine {
       this.cb.onInteract(this.nearby);
     }
     this.prevInteract = pressed;
+
+    // overworld enemy AI
+    this.updateEnemies(dt);
+  }
+
+  private updateEnemies(dt: number) {
+    const enemies = this.currentMap.enemies;
+    if (!enemies || enemies.length === 0) return;
+
+    for (const e of enemies) {
+      // Skip defeated enemies (handle respawn timer)
+      if (e.defeated) {
+        if (e.respawnTimer > 0) {
+          e.respawnCooldown -= dt;
+          if (e.respawnCooldown <= 0) {
+            e.defeated = false;
+            e.x = e.patrol.cx;
+            e.y = e.patrol.cy;
+            e.aggro = false;
+          }
+        }
+        continue;
+      }
+
+      const dx = this.px - e.x;
+      const dy = this.py - e.y;
+      const distToPlayer = Math.hypot(dx, dy);
+
+      // Check encounter (touch range)
+      if (distToPlayer < e.touchRange) {
+        e.aggro = false;
+        if (this.cb.onEncounter) {
+          this.cb.onEncounter(e);
+        }
+        return; // stop processing this frame
+      }
+
+      // Check aggro
+      if (distToPlayer < e.aggroRange) {
+        e.aggro = true;
+      } else if (distToPlayer > e.aggroRange * 1.5) {
+        e.aggro = false; // de-aggro if player moves far enough away
+      }
+
+      if (e.aggro) {
+        // Chase player
+        const speed = e.patrol.speed * 1.5;
+        const len = distToPlayer || 1;
+        e.vx = (dx / len) * speed;
+        e.vy = (dy / len) * speed;
+      } else {
+        // Patrol: wander near home
+        e.animTime -= dt;
+        if (e.animTime <= 0) {
+          const ang = Math.random() * Math.PI * 2;
+          e.vx = Math.cos(ang) * e.patrol.speed;
+          e.vy = Math.sin(ang) * e.patrol.speed;
+          e.animTime = 1.5 + Math.random() * 2.5;
+        }
+        // Keep within patrol radius
+        const homeDx = e.x - e.patrol.cx;
+        const homeDy = e.y - e.patrol.cy;
+        const homeDist = Math.hypot(homeDx, homeDy);
+        if (homeDist > e.patrol.radius) {
+          // Pull back toward home
+          e.vx = -(homeDx / homeDist) * e.patrol.speed;
+          e.vy = -(homeDy / homeDist) * e.patrol.speed;
+        }
+      }
+
+      // Move
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+
+      // Clamp to world bounds
+      e.x = Math.max(20, Math.min(this.currentMap.worldW - 20, e.x));
+      e.y = Math.max(20, Math.min(this.currentMap.worldH - 20, e.y));
+    }
   }
 
   // ---------- render ----------
@@ -510,6 +648,18 @@ export class TownEngine {
             }
             pattern = this.darkGrassPattern ?? "#2a4a2a";
             break;
+          case "lava":
+            if (!this.lavaPattern && this.lavaTile?.complete && this.lavaTile.naturalWidth > 0) {
+              this.lavaPattern = ctx.createPattern(this.lavaTile, "repeat") ?? undefined;
+            }
+            pattern = this.lavaPattern ?? "#8a1a0a";
+            break;
+          case "volcanic_cracked":
+            if (!this.volcanicCrackedPattern && this.volcanicCrackedTile?.complete && this.volcanicCrackedTile.naturalWidth > 0) {
+              this.volcanicCrackedPattern = ctx.createPattern(this.volcanicCrackedTile, "repeat") ?? undefined;
+            }
+            pattern = this.volcanicCrackedPattern ?? "#3a2222";
+            break;
         }
         if (pattern) {
           if (t.type === "water" && this.waterPattern) {
@@ -527,6 +677,21 @@ export class TownEngine {
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(t.x, t.y, t.w, t.h);
             ctx.restore();
+          } else if (t.type === "lava" && this.lavaPattern) {
+            // Animated lava: faster, chaotic bubble shift
+            const lavaX = Math.sin(this.waterAnimTime * 1.4) * 4 + Math.sin(this.waterAnimTime * 3.2) * 2;
+            const lavaY = Math.cos(this.waterAnimTime * 1.1) * 3 + Math.cos(this.waterAnimTime * 2.6) * 2;
+            ctx.save();
+            ctx.fillStyle = this.lavaPattern;
+            ctx.translate(lavaX, lavaY);
+            ctx.fillRect(t.x - lavaX, t.y - lavaY, t.w, t.h);
+            ctx.restore();
+            // Orange glow pulse
+            ctx.save();
+            ctx.globalAlpha = 0.05 + 0.04 * Math.sin(this.waterAnimTime * 3.0);
+            ctx.fillStyle = "#ff6a1a";
+            ctx.fillRect(t.x, t.y, t.w, t.h);
+            ctx.restore();
           } else {
             ctx.fillStyle = pattern;
             ctx.fillRect(t.x, t.y, t.w, t.h);
@@ -535,7 +700,7 @@ export class TownEngine {
       }
     }
 
-    // buildings + entities + props interleaved by Y for depth sorting
+    // buildings + entities + props + enemies interleaved by Y for depth sorting
     const draws: { y: number; fn: () => void }[] = [];
     for (const b of this.currentMap.buildings) {
       draws.push({ y: b.y + b.h, fn: () => this.drawBuilding(b) });
@@ -548,6 +713,13 @@ export class TownEngine {
             ctx.drawImage(p.image!, p.x, p.y, p.w, p.h);
           }});
         }
+      }
+    }
+    // overworld enemies
+    if (this.currentMap.enemies) {
+      for (const e of this.currentMap.enemies) {
+        if (e.defeated) continue;
+        draws.push({ y: e.y, fn: () => this.drawOverworldEnemy(e) });
       }
     }
     for (const n of this.currentMap.npcs) {
@@ -946,6 +1118,53 @@ export class TownEngine {
       const frame = Math.floor((performance.now() / 300) + n.x);
       drawAnim(ctx, "npc_" + n.id, def, "idle",
         Math.round(n.x - size / 2), Math.round(n.y - size / 2), size, frame, n.facing === -1);
+    }
+  }
+
+  private drawOverworldEnemy(e: import("./maps/types").OverworldEnemy) {
+    const ctx = this.ctx;
+    const size = 18;
+
+    // Body — simple pixel monster shape
+    const color = e.monsterKind === "fire_elemental" ? "#ff6a1a" : "#ff3a3a";
+    const darkColor = e.monsterKind === "fire_elemental" ? "#cc4a00" : "#aa1a1a";
+
+    // Shadow
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.ellipse(e.x, e.y + size * 0.4, size * 0.5, size * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Body (bobbing)
+    const bob = Math.sin(performance.now() * 0.004 + e.x) * 2;
+    ctx.fillStyle = darkColor;
+    ctx.fillRect(e.x - size * 0.4, e.y - size * 0.7 + bob, size * 0.8, size * 0.7);
+    ctx.fillStyle = color;
+    ctx.fillRect(e.x - size * 0.35, e.y - size * 0.65 + bob, size * 0.7, size * 0.55);
+
+    // Eyes (white dots)
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(e.x - 4, e.y - size * 0.5 + bob, 3, 3);
+    ctx.fillRect(e.x + 2, e.y - size * 0.5 + bob, 3, 3);
+
+    // Aggro indicator (red !)
+    if (e.aggro) {
+      ctx.fillStyle = "#ff0000";
+      ctx.font = "bold 8px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("!", e.x, e.y - size - 2 + bob);
+    }
+
+    // Glow effect for fire elemental
+    if (e.monsterKind === "fire_elemental") {
+      ctx.globalAlpha = 0.15 + 0.1 * Math.sin(performance.now() * 0.005);
+      ctx.fillStyle = "#ff8a2a";
+      ctx.beginPath();
+      ctx.arc(e.x, e.y - size * 0.3 + bob, size * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
   }
 

@@ -174,10 +174,31 @@ export default function Town() {
         if (panelRef.current !== "none" || dialogOpenRef.current) return;
         handleInteract(n);
       },
+      onEncounter: (enemy) => {
+        // Store encountered enemy ID so we can mark it defeated on return
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("encounter_enemy_id", enemy.id);
+        }
+        // Route to raid with the volcano dungeon on normal mode (overworld encounter)
+        const dungeonId = "volcano";
+        const mode = "normal";
+        router.push(`/raid?hero=${save?.selectedHero || "knight"}&dungeon=${dungeonId}&mode=${mode}&encounter=${enemy.monsterKind}`);
+      },
     });
     engineRef.current = engine;
     engine.start();
     setEngineReady(true);
+
+    // Check if returning from an encounter win — mark enemy defeated
+    if (typeof window !== "undefined") {
+      const encId = sessionStorage.getItem("encounter_enemy_id");
+      const encResult = sessionStorage.getItem("encounter_result");
+      if (encId && encResult === "win") {
+        engine.markEnemyDefeated(encId);
+      }
+      sessionStorage.removeItem("encounter_enemy_id");
+      sessionStorage.removeItem("encounter_result");
+    }
 
     const ro = new ResizeObserver(() => engine.resize());
     ro.observe(canvas);

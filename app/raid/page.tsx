@@ -57,6 +57,7 @@ function RaidInner() {
   const dungeonParam = params.get("dungeon") as DungeonId | null;
   const modeParamRaw = params.get("mode") as string | null;
   const modeParam: GameMode = isValidMode(modeParamRaw) ? modeParamRaw : "normal";
+  const encounterParam = params.get("encounter") as string | null;
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -96,7 +97,7 @@ function RaidInner() {
     const engine = new Engine(canvas, heroParam!, heroLevel, dungeonParam!, {
       onHud: (h) => setHud(h),
       onEnd: (res) => finishRaid(res),
-    }, bonus, modeParam, save.quickSlots, heroProgress.skillLevels, heroProgress.skillBranches);
+    }, bonus, modeParam, save.quickSlots, heroProgress.skillLevels, heroProgress.skillBranches, encounterParam);
 
     const updateScale = () => {
       const frame = canvas.parentElement;
@@ -174,6 +175,10 @@ function RaidInner() {
     }
     if (res.win && !save.cleared.includes(dungeonParam!)) {
       save.cleared.push(dungeonParam!);
+    }
+    // Mark overworld encounter as won (so enemy is defeated on return to town)
+    if (res.win && typeof window !== "undefined") {
+      sessionStorage.setItem("encounter_result", "win");
     }
     // add looted items to shared inventory
     if (res.loot.length) save.inventory.push(...res.loot);

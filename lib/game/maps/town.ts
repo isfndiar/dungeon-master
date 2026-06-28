@@ -239,7 +239,7 @@ export function buildTownMap(): TownMap {
     npcs,
     spawnX: WORLD_W / 2,
     spawnY: WORLD_H - 60,
-    exits: { left: "west_village" },
+    exits: { left: "west_village", down: "volcanic_outpost" },
     plazas: [
       { x: 120, y: 340, w: 1040, h: 230 },
       { x: 460, y: 200, w: 360, h: 140 },

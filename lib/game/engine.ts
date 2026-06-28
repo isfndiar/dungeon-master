@@ -312,6 +312,10 @@ export class Engine {
   private waveSpawned = false;   // enemies spawned for current wave
   private waveClearTimer = 0;    // pause after clearing wave before next
 
+  // encounter mode (overworld enemy → single room battle)
+  private isEncounter = false;
+  private encounterKind: string | null = null;
+
   private goldGained = 0;
   private xpGained = 0;
   private monstersKilled = 0;
@@ -338,7 +342,8 @@ export class Engine {
     mode: GameMode = "normal",
     quickSlots?: (Item | null)[],
     skillLevels?: [number, number, number],
-    skillBranches?: [string | null, string | null, string | null]
+    skillBranches?: [string | null, string | null, string | null],
+    encounterKind?: string | null,
   ) {
     this.ctx = canvas.getContext("2d")!;
     this.ctx.imageSmoothingEnabled = false;
@@ -352,6 +357,8 @@ export class Engine {
     this.heroLevel = heroLevel;
     this.skillLevels = skillLevels ?? [1, 1, 1];
     this.skillBranches = skillBranches ?? [null, null, null];
+    this.isEncounter = !!encounterKind;
+    this.encounterKind = encounterKind ?? null;
     this.dungeon = DUNGEONS[dungeonId];
     this.mode = mode;
     this.difficulty = modeDifficulty(this.dungeon, mode);
@@ -369,8 +376,20 @@ export class Engine {
     if (heroId === "knight") this.lifeStealFrac = 0.05;
 
     // endless mode: skip map generation, use wave-based arena
-    this.isEndless = !!this.dungeon.endless;
-    if (!this.isEndless) {
+    this.isEndless = !!this.dungeon.endless && !this.isEncounter;
+    if (this.isEncounter) {
+      // encounter mode: single room arena, spawn enemies immediately
+      this.map = {
+        startId: 0, bossId: 0, gridW: 1, gridH: 1, maxDepth: 0,
+        rooms: [{
+          id: 0, gx: 0, gy: 0,
+          doors: { n: false, s: false, w: false, e: false },
+          neighbors: {},
+          visited: true, cleared: false, isStart: true, isBoss: false, depth: 0,
+        }],
+      };
+      this.curRoom = this.map.rooms[0];
+    } else if (!this.isEndless) {
       const total = this.dungeon.rooms + 2;
       this.map = generateMap(total);
       this.curRoom = this.map.rooms.find((r) => r.id === this.map.startId)!;
@@ -407,7 +426,11 @@ export class Engine {
     this.last = performance.now();
     this.px = VIEW_W / 2;
     this.py = VIEW_H / 2;
-    if (!this.isEndless) this.enterRoom(this.curRoom, null);
+    if (this.isEncounter) {
+      this.spawnEncounterEnemies();
+    } else if (!this.isEndless) {
+      this.enterRoom(this.curRoom, null);
+    }
     this.phase = "intro";
     this.loop(this.last);
   }
@@ -599,6 +622,31 @@ export class Engine {
     });
   }
 
+  private spawnEncounterEnemies() {
+    const diff = this.difficulty;
+    const count = 2 + Math.floor(Math.random() * 4); // 2-5 enemies
+    const kind = this.encounterKind as MonsterKind;
+    const def: MonsterDef = MONSTERS[kind];
+    if (!def) return;
+    for (let i = 0; i < count; i++) {
+      const x = FIELD.x + 40 + rand(0, FIELD.w - 80);
+      const y = FIELD.y + 30 + rand(0, FIELD.h * 0.4);
+      this.enemies.push({
+        x, y,
+        hp: Math.round(def.hp * diff), maxHp: Math.round(def.hp * diff),
+        dmg: Math.round(def.dmg * diff), speed: def.speed,
+        ranged: def.ranged, projectile: def.projectile,
+        atkTimer: rand(0.5, def.attackCooldown), atkCooldown: def.attackCooldown,
+        size: def.size,
+        sprite: monsterSprites[kind], spriteKey: "m_" + kind,
+        gold: Math.round(def.gold * diff), xp: Math.round(def.xp * diff),
+        isBoss: false, hitFlash: 0, faceLeft: false, bob: rand(0, Math.PI * 2), frozen: 0,
+        phase: 1, spellPool: [], castLock: 0, atkAnim: 0, castAnim: 0, bossState: "shielded", shield: 0, shieldMax: 0, breakTimer: 0, phaseFlash: 0, taunted: 0,
+      });
+    }
+    this.float("ENCOUNTER!", VIEW_W / 2, VIEW_H / 2 - 20, "#ff5a5a");
+  }
+
   // summon a mini-monster (boss spell add). Reduced gold/xp, no spell pool.
   private spawnMini(kind: MonsterKind, x: number, y: number, hp: number, dmg: number, size: number) {
     const def: MonsterDef = MONSTERS[kind];
@@ -657,7 +705,14 @@ export class Engine {
 
     // newly cleared this frame?
     if (!this.curRoom.cleared && this.enemies.length === 0) {
-      if (this.isEndless) {
+      if (this.isEncounter) {
+        // encounter mode: all enemies dead = instant win
+        this.curRoom.cleared = true;
+        this.float("VICTORY!", VIEW_W / 2, VIEW_H / 2 - 20, "#ffd24a");
+        this.phase = "win";
+        this.endRaid(true);
+        return;
+      } else if (this.isEndless) {
         // endless: wave cleared, start pause before next wave
         this.waveClearTimer = 5;
         this.waveSpawned = false;

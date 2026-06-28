@@ -66,7 +66,7 @@ export interface Plaza {
 // A painted terrain rectangle (grid-aligned). "brick" overlays a road texture,
 // "water" overlays the water tile and blocks the player (collision).
 export interface TerrainRect {
-  type: "brick" | "water" | "dirt" | "grass_tufts" | "grass_flowers" | "grass_rocks" | "dark_grass";
+  type: "brick" | "water" | "dirt" | "grass_tufts" | "grass_flowers" | "grass_rocks" | "dark_grass" | "lava" | "volcanic_cracked";
   x: number;
   y: number;
   w: number;
@@ -84,6 +84,23 @@ export interface TerrainProp {
   image?: HTMLImageElement; // preloaded (filled at build)
 }
 
+// Overworld enemy — visible on map, patrols, chases player, triggers encounter
+export interface OverworldEnemy {
+  id: string;
+  monsterKind: string;     // reuse MonsterKind from monsters.ts
+  x: number; y: number;   // current position
+  patrol: { cx: number; cy: number; radius: number; speed: number };
+  aggroRange: number;      // px — starts chasing player
+  touchRange: number;      // px — triggers encounter
+  defeated: boolean;       // disappears after beaten
+  respawnTimer: number;    // seconds until respawn (0 = no respawn)
+  respawnCooldown: number; // current countdown (0 = active)
+  // runtime state
+  vx: number; vy: number;
+  aggro: boolean;
+  animTime: number;
+}
+
 export interface TownMap {
   id: string;
   name: string;
@@ -93,13 +110,16 @@ export interface TownMap {
   npcs: NpcDef[];
   spawnX: number;
   spawnY: number;
-  exits: { left?: string; right?: string };
+  exits: { left?: string; right?: string; up?: string; down?: string };
   plazas: Plaza[];
-  terrainRects?: TerrainRect[]; // optional painted terrain (brick/water/dirt/grass)
-  props?: TerrainProp[];        // decorative objects (trees, lakes, etc.)
+  terrainRects?: TerrainRect[];
+  props?: TerrainProp[];
+  baseTile?: string;  // path to ground tile (default: grass-tile.png)
+  enemies?: OverworldEnemy[]; // visible roaming enemies
 }
 
 export interface TownCallbacks {
   onNearby: (npc: NpcDef | null) => void;
   onInteract: (npc: NpcDef) => void;
+  onEncounter?: (enemy: OverworldEnemy) => void; // triggered when player touches an overworld enemy
 }
