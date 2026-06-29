@@ -64,10 +64,41 @@ export function OverworldCombat({ heroId, enemy, save, onEnd }: OverworldCombatP
       enemy.monsterKind, // encounter mode
     );
 
+    // Scale calculation - same as raid page
+    const updateScale = () => {
+      const frame = canvas.parentElement;
+      if (!frame) return;
+      const fw = frame.clientWidth;
+      const fh = frame.clientHeight;
+      const scaleX = fw / VIEW_W;
+      const scaleY = fh / VIEW_H;
+      const s = Math.min(scaleX, scaleY);
+      engine.setScale(s);
+      canvas.style.width = Math.floor(VIEW_W * s) + "px";
+      canvas.style.height = Math.floor(VIEW_H * s) + "px";
+    };
+    updateScale();
+    window.addEventListener("resize", updateScale);
+
+    // Touch aim support
+    const onTouchAim = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      const rect = canvas.getBoundingClientRect();
+      const s = engine.input.getScale() || 1;
+      engine.input.mouseX = (t.clientX - rect.left) / s;
+      engine.input.mouseY = (t.clientY - rect.top) / s;
+    };
+    canvas.addEventListener("touchstart", onTouchAim, { passive: true });
+    canvas.addEventListener("touchmove", onTouchAim, { passive: true });
+
     engineRef.current = engine;
     engine.start();
 
     return () => {
+      window.removeEventListener("resize", updateScale);
+      canvas.removeEventListener("touchstart", onTouchAim);
+      canvas.removeEventListener("touchmove", onTouchAim);
       engine.destroy();
       engineRef.current = null;
     };
