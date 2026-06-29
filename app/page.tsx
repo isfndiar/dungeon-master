@@ -8,6 +8,7 @@ import {
 import { DUNGEONS, DUNGEON_IDS, DungeonId, MODE_LIST, MODE_DEF, GameMode, isValidMode } from "@/lib/game/dungeons";
 import { heroSprites, drawSprite } from "@/lib/game/sprites";
 import { TownEngine, NpcDef, TownAction } from "@/lib/game/town";
+import { OverworldEnemy } from "@/lib/game/maps/types";
 import { preloadAssets } from "@/lib/game/preload";
 import {
   loadSave, resetSave, writeSave, SaveData,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/game/items";
 import { ItemIcon } from "./ItemIcon";
 import { SkillIcon } from "./SkillIcon";
+import { OverworldCombat } from "./OverworldCombat";
 import { Joystick } from "./Joystick";
 import { InteractButton } from "./InteractButton";
 import {
@@ -79,6 +81,7 @@ export default function Town() {
   const [dialog, setDialog] = useState<{ name: string; lines: string[]; idx: number } | null>(null);
   const [nearbyName, setNearbyName] = useState<string | null>(null);
   const [invFilter, setInvFilter] = useState<EquipSlot | "all" | "consumable">("all");
+  const [encounterEnemy, setEncounterEnemy] = useState<OverworldEnemy | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<TownEngine | null>(null);
@@ -98,6 +101,33 @@ export default function Town() {
       return next;
     });
   }, []);
+
+  const handleCombatEnd = useCallback((result: { win: boolean; gold: number; xp: number; loot: Item[] }) => {
+    if (!encounterEnemy || !save) return;
+
+    commit((s) => {
+      // Add gold
+      s.gold += result.gold;
+
+      // Add XP and check level up
+      const hero = s.heroes[s.selectedHero];
+      hero.xp += result.xp;
+      while (hero.xp >= xpToNext(hero.level)) {
+        hero.xp -= xpToNext(hero.level);
+        hero.level++;
+      }
+
+      // Add loot to inventory
+      for (const item of result.loot) {
+        s.inventory.push(item);
+      }
+    });
+
+    // Mark enemy defeated in town
+    engineRef.current?.markEnemyDefeated(encounterEnemy.id);
+    engineRef.current?.resume();
+    setEncounterEnemy(null);
+  }, [encounterEnemy, save, commit]);
 
   useEffect(() => {
     setSave(loadSave());
@@ -175,30 +205,14 @@ export default function Town() {
         handleInteract(n);
       },
       onEncounter: (enemy) => {
-        // Store encountered enemy ID so we can mark it defeated on return
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem("encounter_enemy_id", enemy.id);
-        }
-        // Route to raid with the volcano dungeon on normal mode (overworld encounter)
-        const dungeonId = "volcano";
-        const mode = "normal";
-        router.push(`/raid?hero=${save?.selectedHero || "knight"}&dungeon=${dungeonId}&mode=${mode}&encounter=${enemy.monsterKind}`);
+        // Pause town engine and show overlay combat
+        engineRef.current?.pause();
+        setEncounterEnemy(enemy);
       },
     });
     engineRef.current = engine;
     engine.start();
     setEngineReady(true);
-
-    // Check if returning from an encounter win — mark enemy defeated
-    if (typeof window !== "undefined") {
-      const encId = sessionStorage.getItem("encounter_enemy_id");
-      const encResult = sessionStorage.getItem("encounter_result");
-      if (encId && encResult === "win") {
-        engine.markEnemyDefeated(encId);
-      }
-      sessionStorage.removeItem("encounter_enemy_id");
-      sessionStorage.removeItem("encounter_result");
-    }
 
     const ro = new ResizeObserver(() => engine.resize());
     ro.observe(canvas);
@@ -367,6 +381,16 @@ export default function Town() {
         <Modal title="Controls" onClose={closePanel}>
           <KeybindPanel />
         </Modal>
+      )}
+
+      {/* Overworld Combat Overlay */}
+      {encounterEnemy && save && (
+        <OverworldCombat
+          heroId={save.selectedHero}
+          enemy={encounterEnemy}
+          save={save}
+          onEnd={handleCombatEnd}
+        />
       )}
     </main>
   );
