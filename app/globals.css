@@ -1759,3 +1759,175 @@ button {
 }
 
 
+
+/* Overworld Combat Overlay */
+.overworld-combat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+}
+
+.overworld-combat-box {
+  background: #0a0a0f;
+  border: 2px solid #2a2a3a;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.combat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 16px;
+}
+
+.combat-hero-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.combat-hero-name {
+  font-weight: bold;
+  color: #e0e0e0;
+  min-width: 60px;
+}
+
+.combat-hp-bar {
+  position: relative;
+  width: 120px;
+  height: 16px;
+  background: #1a1a2a;
+  border: 1px solid #3a3a4a;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.combat-hp-fill {
+  height: 100%;
+  background: linear-gradient(to bottom, #5fff8f, #2a8a4a);
+  transition: width 0.2s ease;
+}
+
+.combat-hp-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.combat-location {
+  color: #8a8a9a;
+  font-size: 12px;
+}
+
+.combat-gold {
+  color: #ffd24a;
+  font-size: 12px;
+}
+
+.combat-canvas {
+  display: block;
+  border: 2px solid #2a2a3a;
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+
+.combat-skills {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+.combat-result-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 12px;
+}
+
+.combat-result-box {
+  background: #0a0a0f;
+  border: 2px solid #2a2a3a;
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  min-width: 200px;
+}
+
+.result-win {
+  color: #ffd24a;
+  font-size: 24px;
+  margin: 0 0 16px 0;
+}
+
+.result-lose {
+  color: #ff5a5a;
+  font-size: 24px;
+  margin: 0 0 16px 0;
+}
+
+.result-rewards {
+  margin-bottom: 16px;
+}
+
+.result-gold {
+  color: #ffd24a;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.result-xp {
+  color: #5aa9ff;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.result-loot {
+  margin-bottom: 16px;
+}
+
+.result-loot h3 {
+  color: #8a8a9a;
+  font-size: 12px;
+  margin: 0 0 8px 0;
+}
+
+.loot-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.result-continue-btn {
+  background: #2a4a2a;
+  border: 1px solid #4a8a4a;
+  color: #5fff8f;
+  padding: 8px 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.result-continue-btn:hover {
+  background: #3a5a3a;
+}
