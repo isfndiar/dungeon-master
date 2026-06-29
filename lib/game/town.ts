@@ -140,6 +140,15 @@ export class TownEngine {
     this.loop(this.last);
   }
 
+  pause() {
+    this.paused = true;
+  }
+
+  resume() {
+    this.paused = false;
+    this.last = performance.now();
+  }
+
   destroy() {
     this.running = false;
     cancelAnimationFrame(this.raf);
