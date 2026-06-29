@@ -624,13 +624,16 @@ export class Engine {
 
   private spawnEncounterEnemies() {
     const diff = this.difficulty;
-    const count = 2 + Math.floor(Math.random() * 4); // 2-5 enemies
+    const count = 4 + Math.floor(Math.random() * 5); // 4-8 enemies
     const kind = this.encounterKind as MonsterKind;
     const def: MonsterDef = MONSTERS[kind];
     if (!def) return;
     for (let i = 0; i < count; i++) {
-      const x = FIELD.x + 40 + rand(0, FIELD.w - 80);
-      const y = FIELD.y + 30 + rand(0, FIELD.h * 0.4);
+      // Spread enemies across the arena
+      const angle = (i / count) * Math.PI * 2 + rand(-0.3, 0.3);
+      const dist = rand(60, 120);
+      const x = clamp(FIELD.x + FIELD.w / 2 + Math.cos(angle) * dist, FIELD.x + 20, FIELD.x + FIELD.w - 20);
+      const y = clamp(FIELD.y + FIELD.h / 2 + Math.sin(angle) * dist, FIELD.y + 20, FIELD.y + FIELD.h - 20);
       this.enemies.push({
         x, y,
         hp: Math.round(def.hp * diff), maxHp: Math.round(def.hp * diff),
