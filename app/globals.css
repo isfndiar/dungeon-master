@@ -1778,8 +1778,9 @@ button {
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
-  max-width: 90vw;
-  max-height: 90vh;
+  max-width: 95vw;
+  max-height: 95vh;
+  overflow: hidden;
 }
 
 .combat-header {
@@ -1844,6 +1845,8 @@ button {
   border: 2px solid #2a2a3a;
   border-radius: 4px;
   image-rendering: pixelated;
+  max-width: 100%;
+  height: auto;
 }
 
 .combat-skills {

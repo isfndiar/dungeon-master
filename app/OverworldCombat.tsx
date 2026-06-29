@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Engine, RaidResult } from "@/lib/game/engine";
+import { Engine, RaidResult, VIEW_W, VIEW_H } from "@/lib/game/engine";
 import { HeroId } from "@/lib/game/heroes";
 import { OverworldEnemy } from "@/lib/game/maps/types";
 import { SaveData, heroBonusStats } from "@/lib/save";
@@ -103,8 +103,8 @@ export function OverworldCombat({ heroId, enemy, save, onEnd }: OverworldCombatP
         {/* Canvas */}
         <canvas
           ref={canvasRef}
-          width={640}
-          height={400}
+          width={VIEW_W * 2}
+          height={VIEW_H * 2}
           className="combat-canvas"
         />
 
