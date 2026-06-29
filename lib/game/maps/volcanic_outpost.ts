@@ -106,15 +106,16 @@ export function buildVolcanicOutpostMap(): TownMap {
   }
 
   // Overworld enemies — fire elementals and lava slimes roaming the paths
+  // Map to existing MonsterKind: "imp" for fire_elemental, "slime" for lava_slime
   const enemies: OverworldEnemy[] = [
-    // Fire elementals near lava pools
-    { id: "ve_1", monsterKind: "fire_elemental", x: 350, y: 300, patrol: { cx: 350, cy: 300, radius: 60, speed: 35 }, aggroRange: 80, touchRange: 18, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
-    { id: "ve_2", monsterKind: "fire_elemental", x: 850, y: 200, patrol: { cx: 850, cy: 200, radius: 70, speed: 38 }, aggroRange: 90, touchRange: 18, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
-    { id: "ve_3", monsterKind: "fire_elemental", x: 600, y: 380, patrol: { cx: 600, cy: 380, radius: 50, speed: 32 }, aggroRange: 75, touchRange: 18, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
-    // Lava slimes on trails
-    { id: "vs_1", monsterKind: "lava_slime", x: 420, y: 195, patrol: { cx: 420, cy: 195, radius: 50, speed: 25 }, aggroRange: 60, touchRange: 16, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
-    { id: "vs_2", monsterKind: "lava_slime", x: 750, y: 195, patrol: { cx: 750, cy: 195, radius: 45, speed: 22 }, aggroRange: 55, touchRange: 16, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
-    { id: "vs_3", monsterKind: "lava_slime", x: 500, y: 395, patrol: { cx: 500, cy: 395, radius: 55, speed: 28 }, aggroRange: 65, touchRange: 16, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
+    // Fire elementals near lava pools (use imp as base)
+    { id: "ve_1", monsterKind: "imp", x: 350, y: 300, patrol: { cx: 350, cy: 300, radius: 60, speed: 35 }, aggroRange: 80, touchRange: 18, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
+    { id: "ve_2", monsterKind: "imp", x: 850, y: 200, patrol: { cx: 850, cy: 200, radius: 70, speed: 38 }, aggroRange: 90, touchRange: 18, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
+    { id: "ve_3", monsterKind: "imp", x: 600, y: 380, patrol: { cx: 600, cy: 380, radius: 50, speed: 32 }, aggroRange: 75, touchRange: 18, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
+    // Lava slimes on trails (use slime as base)
+    { id: "vs_1", monsterKind: "slime", x: 420, y: 195, patrol: { cx: 420, cy: 195, radius: 50, speed: 25 }, aggroRange: 60, touchRange: 16, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
+    { id: "vs_2", monsterKind: "slime", x: 750, y: 195, patrol: { cx: 750, cy: 195, radius: 45, speed: 22 }, aggroRange: 55, touchRange: 16, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
+    { id: "vs_3", monsterKind: "slime", x: 500, y: 395, patrol: { cx: 500, cy: 395, radius: 55, speed: 28 }, aggroRange: 65, touchRange: 16, defeated: false, respawnTimer: 120, respawnCooldown: 0, vx: 0, vy: 0, aggro: false, animTime: 0 },
   ];
 
   return {
